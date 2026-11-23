@@ -78,13 +78,11 @@ fun BudgetScreen(onOpenCategory: (String) -> Unit, viewModel: BudgetViewModel = 
         item { BudgetHero(s) }
         if (s.alerts.isNotEmpty()) item { AlertsCard(s, onOpenCategory) }
         item {
-            CardRow { m -> KpiCard("Income", s.incomeMinor, m, amountColor = DbTheme.colors.positive, caption = "Received this month") }
-        }
-        item {
             CardRow { m ->
+                KpiCard("Income", s.incomeMinor, m, amountColor = DbTheme.colors.positive, caption = "Received this month")
                 KpiCard("Cash-flow surplus", s.surplusMinor, m,
                     amountColor = if (s.surplusMinor >= 0) DbTheme.colors.positive else DbTheme.colors.negative,
-                    caption = "Income − spending, before savings & repayments")
+                    caption = "Income − spending")
             }
         }
         item { CommitmentsCard(s) }

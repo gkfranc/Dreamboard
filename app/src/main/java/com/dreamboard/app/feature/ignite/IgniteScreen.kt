@@ -108,35 +108,34 @@ fun IgniteScreen(onOpenVehicle: (String) -> Unit, viewModel: IgniteViewModel = h
             }
         }
         item {
-            CardRow { m -> StatCard("Cars in stock", "${sum.carsInStock}", m, caption = "Purchased → reserved") }
-        }
-        item {
-            CardRow { m -> KpiCard("Capital deployed", sum.capitalDeployedMinor, m, caption = "Cost of stock incl. prep") }
-        }
-        item {
-            CardRow { m -> KpiCard("Available business cash", s.availableCashMinor, m, caption = "Includes investor funds") }
-        }
-        item {
-            CardRow { m -> KpiCard("Revenue · ${s.asOf.format(MONTH_FULL)}", sum.monthRevenueMinor, m) }
-        }
-        item {
-            CardRow { m -> KpiCard("Total vehicle sales", sum.totalSalesMinor, m, caption = "${sum.soldCount} completed deals") }
-        }
-        item {
-            CardRow { m -> KpiCard("Avg profit / vehicle", sum.avgProfitPerVehicleMinor, m) }
-        }
-        item {
-            CardRow { m -> StatCard("Avg days to sell", "${sum.avgDaysToSell}", m, caption = "Purchase → sale") }
+            CardRow { m ->
+                StatCard("Cars in stock", "${sum.carsInStock}", m, caption = "Purchased → reserved")
+                KpiCard("Capital deployed", sum.capitalDeployedMinor, m, caption = "Cost of stock incl. prep")
+            }
         }
         item {
             CardRow { m ->
-                StatCard("Return on capital", MoneyFormatter.percent(sum.returnOnCapitalBps), m, caption = "Net profit ÷ cost of sold cars",
-                    valueColor = DbTheme.colors.positive)
+                KpiCard("Business cash", s.availableCashMinor, m, caption = "Includes investor funds")
+                KpiCard("Revenue this month", sum.monthRevenueMinor, m, caption = s.asOf.format(MONTH_FULL))
+            }
+        }
+        item {
+            CardRow { m ->
+                KpiCard("Total sales", sum.totalSalesMinor, m, caption = "${sum.soldCount} completed deals")
+                KpiCard("Avg profit / car", sum.avgProfitPerVehicleMinor, m, caption = "Net, after expenses")
+            }
+        }
+        item {
+            CardRow { m ->
+                StatCard("Avg days to sell", "${sum.avgDaysToSell}", m, caption = "Purchase → sale")
+                StatCard("Return on capital", MoneyFormatter.percent(sum.returnOnCapitalBps), m,
+                    caption = "Net profit ÷ cost of sold cars", valueColor = DbTheme.colors.positive)
             }
         }
         item {
             CardRow { m ->
                 StatCard("Inventory turnover", "${s.inventoryTurnoverX10 / 10}.${s.inventoryTurnoverX10 % 10}×", m, caption = "Sales (6 mo) ÷ current stock")
+                StatCard("Sold to date", "${sum.soldCount}", m, caption = "Completed deals")
             }
         }
         item { MonthlyCard(s) }

@@ -80,8 +80,12 @@ fun DebtScreen(onOpenDebt: (String) -> Unit, viewModel: DebtViewModel = hiltView
             DemoDataBanner("Seeded with your example balances as editable demo data, not verified live balances. Rates and installments are assumptions.")
         }
         item { DebtHero(s) }
-        item { CardRow { m -> KpiCard("Interest-bearing", s.interestBearingMinor, m, caption = "Loans & revolving card") } }
-        item { CardRow { m -> KpiCard("Monthly commitments", s.monthlyCommitmentMinor, m, caption = "Installments incl. card settlement") } }
+        item {
+            CardRow { m ->
+                KpiCard("Interest-bearing", s.interestBearingMinor, m, caption = "Loans & revolving card")
+                KpiCard("Monthly commitments", s.monthlyCommitmentMinor, m, caption = "Installments incl. card settlement")
+            }
+        }
         item { ReductionChart(s) }
         item { StrategyCard(s, viewModel) }
         item { CompositionCard(s) }
