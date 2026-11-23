@@ -20,6 +20,20 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    signingConfigs {
+        // Fixed debug key committed to this private repo, so every CI build is signed the same way
+        // and a new APK installs over the previous one. Never use it for a public release.
+        getByName("debug") {
+            storeFile = file("dreamboard-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -31,6 +45,7 @@ android {
             // Unsigned by default. See docs/BUILD_AND_INSTALL.md to sign with your own free keystore.
         }
         debug {
+            signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
