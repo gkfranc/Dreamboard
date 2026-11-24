@@ -235,11 +235,11 @@ Rules enforced in the data layer:
 
 | Phase | Scope | Status |
 |---|---|---|
-| **1 · Design system & navigation** | Project, theme, typography, components, Canvas charts, four-tab navigation with nested detail screens, settings (privacy mode, abbreviation, screenshot protection, theme stored in DataStore), finance engines with unit tests, clearly labelled demo data | **This delivery** |
-| 2 · Local database | Room schema above with migrations, accounts, assets, liabilities, manual transaction entry and editing, persisted goal/milestone edits, real net-worth totals, monthly verified snapshots (WorkManager), opening-balance reconciliation | Next |
+| **1 · Design system & navigation** | Project, theme, typography, components, Canvas charts, four-tab navigation with nested detail screens, settings (privacy mode, abbreviation, screenshot protection, theme stored in DataStore), finance engines with unit tests, clearly labelled demo data | Done |
+| **2 · Local database** | Room schema with exported schema and a migration list, accounts with opening balances, assets with valuation history, liabilities with payment history (interest split from principal) and an audit trail of balance changes, manual transaction entry and editing with category splits, category limits, month browsing, persisted goal/milestone edits, real net-worth totals, weekly snapshots (WorkManager plus app start) and manual snapshots. Brought forward from Phase 5: CSV/XLSX import with sheet picker, header detection, editable column mapping, duplicate detection and import error reports | **This delivery** |
 | 3 · Debt & budget engines | Per-loan amortisation from start dates, irregular repayments, revolving-card modelling, custom priority editor, monthly and annual budgets, copy budget to month, category/subcategory management, splits, rules, recurring transactions, budget alerts and due-date notifications (local) | |
 | 4 · Ignite module | Vehicle CRUD with photos, deal expenses, investors and ledgers, configurable arrangements, distributions, personal-income attribution, analytics, spreadsheet import of history | |
-| 5 · Imports, backups, QA | CSV/XLSX import (lightweight open-source XLSX reader, evaluated for Android in that phase), M-Pesa statement parsing where reliable, dedupe, import error reports, encrypted backup/restore (AES-GCM key in Android Keystore plus user passphrase), Drive via the system file picker, BiometricPrompt lock, UI and migration tests, performance | |
+| 5 · Imports, backups, QA | Import refinements (saved column mappings per sheet, M-Pesa PDF statements where reliable, bulk reclassification), encrypted backup/restore (AES-GCM key in Android Keystore plus user passphrase), Drive via the system file picker, BiometricPrompt lock, UI and migration tests, performance | |
 
 ---
 
@@ -254,5 +254,9 @@ Rules enforced in the data layer:
 - Readiness is a separate test: interest-bearing debt cleared, 6+ months of liquid buffer (excluding the Porsche fund), fund fully funded, and running costs at or below 10% of take-home income.
 - Net-worth history in Phase 1 is a synthetic demo curve, marked as demo. From Phase 2, history comes only from verified snapshots; with no history, the chart shows an empty state rather than invented data.
 - Ignite demo vehicles use "DEMO 00x" registrations. Profit-sharing percentages are per arrangement (joint pool 50/50 partner/you; UK pool 60/20/20; individual investor 50/25/25; partner-funded 70/30) and are placeholders.
-- Phase 1 edits (milestones, goal assumptions) live in memory until the Room database lands in Phase 2; the UI says so.
-- Biometric lock, imports and backups are shown in Settings as planned items with their phase, not as buttons, so nothing looks functional without being so.
+- From Phase 2 the app starts empty apart from settings-like defaults: 14 budget categories with limits, a "Bank account" and an "M-Pesa" account, the four milestones and the Porsche goal assumptions. Frank's example debts are loaded only on request (Debt tab or Settings) and labelled as unverified starting values.
+- Ignite still shows labelled demo data until Phase 4.
+- Snapshots: one per date. An automatic snapshot is saved when the last one is 7 or more days old and there is data; "Record snapshot now" saves one on demand. History is never back-filled.
+- Account balances are informational (opening balance plus transactions since the opening date). Net worth counts assets and liabilities only, so a bank balance must be entered as an asset to count; this avoids double counting.
+- Imports: rows become Expense (money out) or Income (money in), and the user reclassifies transfers, card bill payments and loan repayments afterwards. Duplicates are matched on account, date, signed amount and normalised description, counted as a multiset so genuine repeat purchases in one file are kept. A sheet category that doesn't exist is created with no limit. The XLSX reader is a small built-in zip + SAX parser hardened against XML external entities; old .xls files are refused with advice to save as .xlsx or .csv. Files are read on the phone only.
+- Biometric lock and backups are shown in Settings as planned items with their phase, not as buttons, so nothing looks functional without being so.
