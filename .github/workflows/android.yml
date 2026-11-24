@@ -2,7 +2,7 @@ name: Build debug APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, "phase*"]
   pull_request:
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ jobs:
           name: dreamboard-debug-apk
           path: app/build/outputs/apk/debug/*.apk
       - name: Publish to the "latest" release
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
