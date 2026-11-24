@@ -108,9 +108,9 @@ fun SettingsScreen(
         item { SectionHeader("Data") }
         item {
             DbCard(contentPadding = 8.dp) {
-                NavRow(Icons.Outlined.AccountBalance, "Accounts", "Bank, M-Pesa, SACCO and card accounts with opening balances.", onOpenAccounts)
-                NavRow(Icons.Outlined.AccountBalanceWallet, "Assets & net-worth snapshots", "Add or revalue assets; snapshots are saved weekly.", onOpenAssets)
-                NavRow(Icons.Outlined.FileUpload, "Import spreadsheet", "CSV or Excel (.xlsx) from your phone or Google Drive, with duplicate checks.", onOpenImport)
+                NavRow(Icons.Outlined.AccountBalance, "Accounts", "Bank, M-Pesa, SACCO and card accounts with opening balances.", onClick = onOpenAccounts)
+                NavRow(Icons.Outlined.AccountBalanceWallet, "Assets & net-worth snapshots", "Add or revalue assets; snapshots are saved weekly.", onClick = onOpenAssets)
+                NavRow(Icons.Outlined.FileUpload, "Import spreadsheet", "CSV or Excel (.xlsx) from your phone or Google Drive, with duplicate checks.", onClick = onOpenImport)
                 NavRow(Icons.Outlined.Receipt, "Load my example debts", "Adds the example debts from your brief, marked unverified, if you have no debts yet.") { confirmExamples = true }
                 NavRow(Icons.Outlined.DeleteForever, "Erase all data", "Deletes every account, transaction, asset, debt and snapshot on this phone.", danger = true) { confirmErase = true }
                 PlannedRow(Icons.Outlined.Backup, "Encrypted backup & restore", "Keystore-encrypted export to your device or Google Drive via the file picker.", "Phase 5")
