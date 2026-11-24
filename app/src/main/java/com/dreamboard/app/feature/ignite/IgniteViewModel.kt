@@ -63,14 +63,14 @@ class IgniteViewModel @Inject constructor(private val repo: FinanceRepository) :
     private fun build(
         vehicles: List<Vehicle>, arr: List<FundingArrangement>, months: List<IgniteMonth>, cash: Long, f: InventoryFilter,
     ): IgniteUiState {
-        val asOf = repo.asOf
+        val asOf = repo.igniteAsOf
         val byId = arr.associateBy { it.id }
         val summary = IgniteMath.summarize(vehicles, byId, asOf)
         val sold = vehicles.filter { it.status == VehicleStatus.SOLD }
         val stock = vehicles.filter { it.status.inStock }
         val soldLast6 = sold.count { it.saleDate != null && !it.saleDate.isBefore(asOf.minusMonths(6)) }
         return IgniteUiState(
-            isDemo = repo.isDemoData,
+            isDemo = repo.igniteIsDemo,
             asOf = asOf,
             summary = summary,
             availableCashMinor = cash,
@@ -127,6 +127,6 @@ class VehicleDetailViewModel @Inject constructor(
 
     private fun build(vehicles: List<Vehicle>, arr: List<FundingArrangement>): VehicleDetailUiState {
         val v = vehicles.firstOrNull { it.id == vehicleId }
-        return VehicleDetailUiState(v, v?.let { x -> arr.firstOrNull { it.id == x.arrangementId } }, repo.asOf)
+        return VehicleDetailUiState(v, v?.let { x -> arr.firstOrNull { it.id == x.arrangementId } }, repo.igniteAsOf)
     }
 }

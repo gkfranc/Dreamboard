@@ -24,7 +24,6 @@ import com.dreamboard.app.domain.model.TransactionType
 import com.dreamboard.app.domain.model.ValueType
 import com.dreamboard.app.domain.model.Vehicle
 import com.dreamboard.app.domain.model.VehicleStatus
-import com.dreamboard.app.domain.repository.FinanceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,19 +34,21 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * DEMONSTRATION DATA ONLY. Every figure here is illustrative and is labelled as such in the UI.
+ * DEMONSTRATION DATA ONLY. Since Phase 2 only the Ignite Motors section is still served from here
+ * (until Phase 4); personal finance data lives in the Room database.
+ * Every figure here is illustrative and is labelled as such in the UI.
  * The debt balances are the user's own example figures, used as editable seed values, not verified
  * live balances. Edits made in Phase 1 live in memory and reset when the app restarts.
  */
 @Singleton
-class DemoFinanceRepository @Inject constructor() : FinanceRepository {
+class DemoFinanceRepository @Inject constructor() {
 
-    override val isDemoData: Boolean = true
-    override val asOf: LocalDate = DEMO_AS_OF
+    val isDemoData: Boolean = true
+    val asOf: LocalDate = DEMO_AS_OF
 
-    override val assets = MutableStateFlow(demoAssets()).asStateFlow()
-    override val debts = MutableStateFlow(demoDebts()).asStateFlow()
-    override val netWorthHistory = MutableStateFlow(demoNetWorthHistory()).asStateFlow()
+    val assets = MutableStateFlow(demoAssets()).asStateFlow()
+    val debts = MutableStateFlow(demoDebts()).asStateFlow()
+    val netWorthHistory = MutableStateFlow(demoNetWorthHistory()).asStateFlow()
 
     private val _goal = MutableStateFlow(
         GoalAssumptions(
@@ -62,7 +63,7 @@ class DemoFinanceRepository @Inject constructor() : FinanceRepository {
             annualFuelMinor = 540_000.kes,
         )
     )
-    override val goalAssumptions: StateFlow<GoalAssumptions> = _goal.asStateFlow()
+    val goalAssumptions: StateFlow<GoalAssumptions> = _goal.asStateFlow()
 
     private val _milestones = MutableStateFlow(
         listOf(
@@ -72,21 +73,21 @@ class DemoFinanceRepository @Inject constructor() : FinanceRepository {
             Milestone("m4", 2035, "Porsche Cayenne", "Buy the Cayenne in cash from the dedicated fund.", MilestoneStatus.UPCOMING),
         )
     )
-    override val milestones: StateFlow<List<Milestone>> = _milestones.asStateFlow()
+    val milestones: StateFlow<List<Milestone>> = _milestones.asStateFlow()
 
-    override val budgetCategories = MutableStateFlow(demoCategories()).asStateFlow()
-    override val transactions = MutableStateFlow(demoTransactions()).asStateFlow()
-    override val monthHistory = MutableStateFlow(demoMonthHistory()).asStateFlow()
-    override val monthlyNetIncomeMinor = MutableStateFlow(285_000.kes).asStateFlow()
+    val budgetCategories = MutableStateFlow(demoCategories()).asStateFlow()
+    val transactions = MutableStateFlow(demoTransactions()).asStateFlow()
+    val monthHistory = MutableStateFlow(demoMonthHistory()).asStateFlow()
+    val monthlyNetIncomeMinor = MutableStateFlow(285_000.kes).asStateFlow()
 
-    override val arrangements = MutableStateFlow(demoArrangements()).asStateFlow()
-    override val vehicles = MutableStateFlow(demoVehicles()).asStateFlow()
-    override val igniteMonths = MutableStateFlow(demoIgniteMonths()).asStateFlow()
-    override val igniteAvailableCashMinor = MutableStateFlow(850_000.kes).asStateFlow()
+    val arrangements = MutableStateFlow(demoArrangements()).asStateFlow()
+    val vehicles = MutableStateFlow(demoVehicles()).asStateFlow()
+    val igniteMonths = MutableStateFlow(demoIgniteMonths()).asStateFlow()
+    val igniteAvailableCashMinor = MutableStateFlow(850_000.kes).asStateFlow()
 
-    override fun updateGoalAssumptions(transform: (GoalAssumptions) -> GoalAssumptions) = _goal.update(transform)
+    fun updateGoalAssumptions(transform: (GoalAssumptions) -> GoalAssumptions) = _goal.update(transform)
 
-    override fun updateMilestone(milestone: Milestone) = _milestones.update { list ->
+    fun updateMilestone(milestone: Milestone) = _milestones.update { list ->
         list.map { if (it.id == milestone.id) milestone else it }.sortedBy { it.year }
     }
 
