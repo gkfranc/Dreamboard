@@ -24,6 +24,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountBalance
+import com.dreamboard.app.core.designsystem.component.EmptyState
+import com.dreamboard.app.core.designsystem.component.PrimaryAction
+import com.dreamboard.app.core.designsystem.component.SecondaryAction
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -67,7 +72,7 @@ internal fun durationLabel(months: Int): String {
 }
 
 @Composable
-fun DebtScreen(onOpenDebt: (String) -> Unit, viewModel: DebtViewModel = hiltViewModel()) {
+fun DebtScreen(onOpenDebt: (String) -> Unit, onAddDebt: () -> Unit, viewModel: DebtViewModel = hiltViewModel()) {
     val s by viewModel.uiState.collectAsStateWithLifecycle()
 
     LazyColumn(
@@ -79,6 +84,18 @@ fun DebtScreen(onOpenDebt: (String) -> Unit, viewModel: DebtViewModel = hiltView
         if (s.isDemo) item {
             DemoDataBanner("Seeded with your example balances as editable demo data, not verified live balances. Rates and installments are assumptions.")
         }
+        if (s.debts.isEmpty()) {
+            item {
+                DbCard {
+                    EmptyState(Icons.Outlined.AccountBalance, "No debts recorded",
+                        "Add each loan or card with its balance, rate and installment, or start from the example debts in your brief and correct them.")
+                    PrimaryAction("Add debt", onAddDebt, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    SecondaryAction("Load my example debts", { viewModel.loadExampleDebts() }, Modifier.fillMaxWidth())
+                }
+            }
+            return@LazyColumn
+        }
         item { DebtHero(s) }
         item {
             CardRow { m ->
@@ -89,7 +106,7 @@ fun DebtScreen(onOpenDebt: (String) -> Unit, viewModel: DebtViewModel = hiltView
         item { ReductionChart(s) }
         item { StrategyCard(s, viewModel) }
         item { CompositionCard(s) }
-        item { SectionHeader("By lender") }
+        item { SectionHeader("By lender", actionLabel = "Add debt", onAction = onAddDebt) }
         items(s.debts, key = { it.id }) { d ->
             DebtRow(d, payoffMonth = s.scenario.payoffMonthByDebt[d.id], s = s, onClick = { onOpenDebt(d.id) })
         }
@@ -123,7 +140,7 @@ private fun DebtHero(s: DebtUiState) {
             }
         }
         Spacer(Modifier.height(4.dp))
-        Text("Excludes the Equity card (settled in full monthly) and balances not yet entered.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
+        Text("Excludes cards settled in full each month and balances not yet entered.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
     }
 }
 

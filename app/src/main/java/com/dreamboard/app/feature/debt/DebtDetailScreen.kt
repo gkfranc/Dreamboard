@@ -38,12 +38,16 @@ import com.dreamboard.app.core.designsystem.component.SectionHeader
 import com.dreamboard.app.core.designsystem.component.formatMoney
 import com.dreamboard.app.core.designsystem.theme.DbTheme
 import com.dreamboard.app.core.money.MoneyFormatter
+import com.dreamboard.app.core.designsystem.component.PrimaryAction
+import com.dreamboard.app.core.designsystem.component.SecondaryAction
+import com.dreamboard.app.feature.manage.RecordPaymentDialog
 import java.time.format.DateTimeFormatter
 
 private val DAY = DateTimeFormatter.ofPattern("d MMM yyyy")
 
 @Composable
-fun DebtDetailScreen(onBack: () -> Unit, viewModel: DebtDetailViewModel = hiltViewModel()) {
+fun DebtDetailScreen(onBack: () -> Unit, onEdit: (String) -> Unit, viewModel: DebtDetailViewModel = hiltViewModel()) {
+    var recording by remember { mutableStateOf(false) }
     val s by viewModel.uiState.collectAsStateWithLifecycle()
     val d = s.debt
     var selected by remember(s.schedule) { mutableStateOf<Int?>(null) }
@@ -64,7 +68,7 @@ fun DebtDetailScreen(onBack: () -> Unit, viewModel: DebtDetailViewModel = hiltVi
                 Spacer(Modifier.height(8.dp))
                 if (d.balanceMinor == null) {
                     Text("Not entered yet", style = MaterialTheme.typography.headlineMedium, color = DbTheme.colors.gold)
-                    Text("Enter the balance in Phase 2 to include it in totals and projections.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
+                    Text("Tap Edit to enter the balance so it counts in totals and projections.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
                 } else {
                     MoneyText(d.balanceMinor, style = MaterialTheme.typography.displayMedium)
                 }
@@ -77,6 +81,12 @@ fun DebtDetailScreen(onBack: () -> Unit, viewModel: DebtDetailViewModel = hiltVi
                 MoneyInfoRow("Interest paid to date", d.interestPaidToDateMinor, emptyText = "—")
                 Spacer(Modifier.height(6.dp))
                 Text(d.notes, style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SecondaryAction("Edit", { onEdit(d.id) }, Modifier.weight(1f))
+                PrimaryAction("Record payment", { recording = true }, Modifier.weight(1f))
             }
         }
         if (s.schedule.isNotEmpty()) {
@@ -120,7 +130,7 @@ fun DebtDetailScreen(onBack: () -> Unit, viewModel: DebtDetailViewModel = hiltVi
         if (d.payments.isEmpty()) {
             item {
                 DbCard {
-                    EmptyState(Icons.Outlined.EditNote, "No payments recorded", "Repayments appear here once logged or imported (Phase 2–5).")
+                    EmptyState(Icons.Outlined.EditNote, "No payments recorded", "Tap Record payment after each installment. Interest is split out so the balance drops by principal only.")
                 }
             }
         } else {
@@ -139,10 +149,14 @@ fun DebtDetailScreen(onBack: () -> Unit, viewModel: DebtDetailViewModel = hiltVi
                             Text(formatMoney(p.interestMinor, forceAbbreviate = true), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.negative, textAlign = TextAlign.End)
                         }
                     }
-                    Text("Demo history derived from the assumed rate and installment.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
                 }
             }
         }
         item { Spacer(Modifier.height(12.dp)) }
+    }
+    if (recording && d != null) {
+        RecordPaymentDialog(d, onDismiss = { recording = false }, onRecord = { date, amount, interest, note ->
+            viewModel.recordPayment(date, amount, interest, note); recording = false
+        })
     }
 }

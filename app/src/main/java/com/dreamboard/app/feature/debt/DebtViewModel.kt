@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
 
@@ -62,6 +63,7 @@ class DebtViewModel @Inject constructor(private val repo: FinanceRepository) : V
 
     fun setStrategy(s: RepaymentStrategy) = inputs.update { it.copy(strategy = s) }
     fun setExtra(minor: Long) = inputs.update { it.copy(extraMonthlyMinor = minor) }
+    fun loadExampleDebts() = viewModelScope.launch { repo.loadExampleDebts() }
     fun setBusinessIncome(minor: Long) = inputs.update { it.copy(businessIncomeToDebtMinor = minor) }
 
     private fun build(debts: List<Debt>, i: ScenarioInputs): DebtUiState {
@@ -104,6 +106,9 @@ class DebtDetailViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), build(repo.debts.value, extra.value))
 
     fun setExtra(minor: Long) = extra.update { minor }
+
+    fun recordPayment(date: LocalDate, amountMinor: Long, interestMinor: Long, note: String) =
+        viewModelScope.launch { repo.recordDebtPayment(debtId, date, amountMinor, interestMinor, note) }
 
     private fun build(debts: List<Debt>, e: Long): DebtDetailUiState {
         val d = debts.firstOrNull { it.id == debtId }

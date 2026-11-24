@@ -166,7 +166,7 @@ fun PorscheGoalScreen(onBack: () -> Unit, viewModel: DreamboardViewModel = hiltV
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Projections use nominal monthly compounding. They are estimates, not guarantees. " +
-                        "Edits last for this session until the Phase 2 database stores them.",
+                        "Edits are saved on this phone.",
                     style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted,
                 )
             }

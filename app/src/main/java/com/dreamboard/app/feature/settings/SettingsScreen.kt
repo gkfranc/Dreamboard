@@ -1,6 +1,19 @@
 package com.dreamboard.app.feature.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.DeleteForever
+import androidx.compose.material.icons.outlined.Receipt
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.dreamboard.app.core.designsystem.component.ConfirmDialog
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -47,8 +60,18 @@ import com.dreamboard.app.core.designsystem.theme.DbTheme
 import com.dreamboard.app.data.prefs.ThemePreference
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onOpenAccounts: () -> Unit,
+    onOpenImport: () -> Unit,
+    onOpenAssets: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel(),
+) {
     val p by viewModel.preferences.collectAsStateWithLifecycle()
+    val batches by viewModel.importBatches.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    var confirmErase by remember { mutableStateOf(false) }
+    var confirmExamples by remember { mutableStateOf(false) }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
@@ -85,8 +108,31 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
         item { SectionHeader("Data") }
         item {
             DbCard(contentPadding = 8.dp) {
-                PlannedRow(Icons.Outlined.FileUpload, "Import statements", "CSV, XLSX and M-Pesa statements via the system file picker.", "Phase 5")
+                NavRow(Icons.Outlined.AccountBalance, "Accounts", "Bank, M-Pesa, SACCO and card accounts with opening balances.", onOpenAccounts)
+                NavRow(Icons.Outlined.AccountBalanceWallet, "Assets & net-worth snapshots", "Add or revalue assets; snapshots are saved weekly.", onOpenAssets)
+                NavRow(Icons.Outlined.FileUpload, "Import spreadsheet", "CSV or Excel (.xlsx) from your phone or Google Drive, with duplicate checks.", onOpenImport)
+                NavRow(Icons.Outlined.Receipt, "Load my example debts", "Adds the example debts from your brief, marked unverified, if you have no debts yet.") { confirmExamples = true }
+                NavRow(Icons.Outlined.DeleteForever, "Erase all data", "Deletes every account, transaction, asset, debt and snapshot on this phone.", danger = true) { confirmErase = true }
                 PlannedRow(Icons.Outlined.Backup, "Encrypted backup & restore", "Keystore-encrypted export to your device or Google Drive via the file picker.", "Phase 5")
+            }
+        }
+
+        message?.let { m -> item { Text(m, style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.positive) } }
+        if (batches.isNotEmpty()) {
+            item { SectionHeader("Import history") }
+            item {
+                DbCard(contentPadding = 8.dp) {
+                    batches.take(10).forEach { b ->
+                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                            Text(b.fileName, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                IMPORT_TIME.format(Instant.ofEpochMilli(b.importedAtMillis).atZone(ZoneId.systemDefault())) +
+                                    " · ${b.importedCount} imported · ${b.duplicateCount} duplicates · ${b.errorCount} errors",
+                                style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted,
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -102,15 +148,43 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 Text(
                     "The trade-off: device-only storage means a lost, reset or broken phone takes the data with it. " +
                         "Android auto-backup is deliberately disabled for privacy, so encrypted manual backups (Phase 5) will be essential. " +
-                        "Until then, Phase 1 shows demonstration data only.",
+                        "Until then, keep your original spreadsheets: they can be imported again, and duplicates are skipped.",
                     style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted,
                 )
             }
         }
         item {
-            Text("Dreamboard 0.1 · Phase 1 · free and open-source components only",
+            Text("Dreamboard 0.2 · Phase 2 · free and open-source components only",
                 style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted, modifier = Modifier.padding(vertical = 16.dp))
         }
+    }
+    if (confirmErase) {
+        ConfirmDialog(
+            "Erase all data?", "This permanently deletes everything stored in Dreamboard on this phone. It can't be undone.", "Erase",
+            onConfirm = { viewModel.eraseAll(); confirmErase = false }, onDismiss = { confirmErase = false },
+        )
+    }
+    if (confirmExamples) {
+        ConfirmDialog(
+            "Load example debts?", "Adds the debts from your brief as unverified starting values. Edit each one to match your statements. Nothing is added if you already have debts.", "Load",
+            onConfirm = { viewModel.loadExampleDebts(); confirmExamples = false }, onDismiss = { confirmExamples = false },
+        )
+    }
+}
+
+private val IMPORT_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
+
+@Composable
+private fun NavRow(icon: ImageVector, title: String, body: String, danger: Boolean = false, onClick: () -> Unit) {
+    val tint = if (danger) DbTheme.colors.negative else DbTheme.colors.gold
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = if (danger) tint else MaterialTheme.colorScheme.onSurface)
+            Text(body, style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
+        }
+        Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = DbTheme.colors.textMuted)
     }
 }
 

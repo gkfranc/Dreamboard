@@ -59,14 +59,28 @@ import com.dreamboard.app.core.designsystem.theme.DbTheme
 import com.dreamboard.app.core.money.MoneyFormatter
 import com.dreamboard.app.domain.model.Transaction
 import java.time.format.DateTimeFormatter
+import java.time.YearMonth
+import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.ui.text.style.TextAlign
+import com.dreamboard.app.core.designsystem.component.PrimaryAction
+import com.dreamboard.app.core.designsystem.component.SecondaryAction
 
 private val MONTH_FULL = DateTimeFormatter.ofPattern("MMMM yyyy")
 private val MONTH_SHORT = DateTimeFormatter.ofPattern("MMM")
 internal val DAY_SHORT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
 
 @Composable
-fun BudgetScreen(onOpenCategory: (String) -> Unit, viewModel: BudgetViewModel = hiltViewModel()) {
+fun BudgetScreen(
+    onOpenCategory: (String, YearMonth) -> Unit,
+    onAddTransaction: () -> Unit,
+    onEditTransaction: (String) -> Unit,
+    onImport: () -> Unit,
+    viewModel: BudgetViewModel = hiltViewModel(),
+) {
     val s by viewModel.uiState.collectAsStateWithLifecycle()
+    val openCategory: (String) -> Unit = { onOpenCategory(it, s.month) }
+    var addingCategory by remember { mutableStateOf(false) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -75,8 +89,21 @@ fun BudgetScreen(onOpenCategory: (String) -> Unit, viewModel: BudgetViewModel = 
     ) {
         item { ScreenHeader("Budget & Expenses", overline = s.month.format(MONTH_FULL)) }
         if (s.isDemo) item { DemoDataBanner() }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { viewModel.shiftMonth(-1) }) { Icon(Icons.Outlined.ChevronLeft, contentDescription = "Previous month") }
+                Text(s.month.format(MONTH_FULL), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                IconButton(onClick = { viewModel.shiftMonth(1) }, enabled = !s.isCurrentMonth) { Icon(Icons.Outlined.ChevronRight, contentDescription = "Next month") }
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PrimaryAction("Add transaction", onAddTransaction, Modifier.weight(1f))
+                SecondaryAction("Import", onImport, Modifier.weight(1f))
+            }
+        }
         item { BudgetHero(s) }
-        if (s.alerts.isNotEmpty()) item { AlertsCard(s, onOpenCategory) }
+        if (s.alerts.isNotEmpty()) item { AlertsCard(s, openCategory) }
         item {
             CardRow { m ->
                 KpiCard("Income", s.incomeMinor, m, amountColor = DbTheme.colors.positive, caption = "Received this month")
@@ -87,25 +114,34 @@ fun BudgetScreen(onOpenCategory: (String) -> Unit, viewModel: BudgetViewModel = 
         }
         item { CommitmentsCard(s) }
         item { TrendCard(s) }
-        item { SectionHeader("Categories") }
-        item { CategoriesCard(s, onOpenCategory) }
+        item { SectionHeader("Categories", actionLabel = "Add category", onAction = { addingCategory = true }) }
+        item { CategoriesCard(s, openCategory) }
         item { MerchantsCard(s) }
         item { SectionHeader("Transactions") }
         item { TransactionFilters(s, viewModel) }
         if (s.transactions.isEmpty()) {
-            item { EmptyState(Icons.Outlined.ReceiptLong, "No matching transactions", "Try a different search or filter.") }
+            item {
+                if (s.query.isBlank() && s.filter == TxFilter.ALL) EmptyState(Icons.Outlined.ReceiptLong, "No transactions this month", "Add one, or import a CSV or Excel sheet.")
+                else EmptyState(Icons.Outlined.ReceiptLong, "No matching transactions", "Try a different search or filter.")
+            }
         } else {
-            items(s.transactions, key = { it.id }) { t -> TransactionRow(t, s.categoryNames[t.categoryId]) }
+            items(s.transactions, key = { it.id }) { t -> TransactionRow(t, categoryLabel(t, s.categoryNames)) { onEditTransaction(t.id) } }
         }
         item {
             Text(
-                "Manual entry arrives with the Phase 2 database; CSV, XLSX and M-Pesa statement imports in Phase 5. " +
+                "Transfers, card bill payments and loan principal never count as spending, so nothing is counted twice. " +
                     "Dreamboard never asks for online-banking passwords.",
                 style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted, modifier = Modifier.padding(vertical = 12.dp),
             )
         }
     }
+    if (addingCategory) {
+        CategoryDialog(null, onDismiss = { addingCategory = false }, onSave = { viewModel.saveCategory(it); addingCategory = false })
+    }
 }
+
+internal fun categoryLabel(t: Transaction, names: Map<String, String>): String? =
+    if (t.splits.isNotEmpty()) "Split ${t.splits.size} ways" else names[t.categoryId]
 
 @Composable
 private fun BudgetHero(s: BudgetUiState) {
@@ -131,7 +167,7 @@ private fun BudgetHero(s: BudgetUiState) {
             "Projected month-end spending", s.projectedMonthEndMinor,
             valueColor = if (s.projectedMonthEndMinor > s.budgetMinor) DbTheme.colors.negative else DbTheme.colors.positive,
         )
-        Text("Forecast: straight-line from day ${s.asOf.dayOfMonth} of ${s.month.lengthOfMonth()}.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
+        if (s.isCurrentMonth) Text("Forecast: straight-line from day ${s.asOf.dayOfMonth} of ${s.month.lengthOfMonth()}.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
     }
 }
 
@@ -271,7 +307,7 @@ private fun TransactionFilters(s: BudgetUiState, vm: BudgetViewModel) {
 }
 
 @Composable
-internal fun TransactionRow(t: Transaction, categoryName: String?) {
+internal fun TransactionRow(t: Transaction, categoryName: String?, onClick: (() -> Unit)? = null) {
     val spending = t.type.countsAsSpending
     val income = t.type.countsAsIncome
     val color = when {
@@ -279,7 +315,7 @@ internal fun TransactionRow(t: Transaction, categoryName: String?) {
         spending -> MaterialTheme.colorScheme.onSurface
         else -> DbTheme.colors.textMuted
     }
-    DbCard(contentPadding = 14.dp) {
+    DbCard(onClick = onClick, contentPadding = 14.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(t.merchant, style = MaterialTheme.typography.titleSmall, maxLines = 1)

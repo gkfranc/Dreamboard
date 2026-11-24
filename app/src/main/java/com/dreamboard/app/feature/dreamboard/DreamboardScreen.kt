@@ -65,12 +65,15 @@ import com.dreamboard.app.core.money.MoneyFormatter
 import com.dreamboard.app.domain.model.Milestone
 import com.dreamboard.app.domain.model.MilestoneStatus
 import java.time.format.DateTimeFormatter
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import com.dreamboard.app.core.designsystem.component.PrimaryAction
+import com.dreamboard.app.core.designsystem.component.SecondaryAction
 
 private val DATE = DateTimeFormatter.ofPattern("d MMM yyyy")
 private val MONTH_YEAR = DateTimeFormatter.ofPattern("MMM yyyy")
 
 @Composable
-fun DreamboardScreen(onOpenGoal: () -> Unit, viewModel: DreamboardViewModel = hiltViewModel()) {
+fun DreamboardScreen(onOpenGoal: () -> Unit, onManageAssets: () -> Unit, viewModel: DreamboardViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<Milestone?>(null) }
 
@@ -82,8 +85,20 @@ fun DreamboardScreen(onOpenGoal: () -> Unit, viewModel: DreamboardViewModel = hi
         item { ScreenHeader(title = "Dreamboard", overline = "Private wealth") }
         if (state.isDemo) item { DemoDataBanner() }
         item { NetWorthHero(state) }
+        if (state.totalAssetsMinor == 0L) {
+            item {
+                DbCard {
+                    EmptyState(Icons.Outlined.AccountBalanceWallet, "Add what you own",
+                        "Enter each asset (bank balances, M-Pesa, SACCO, investments, vehicles, your Ignite equity) with today's value. Net worth and weekly snapshots build from here.")
+                    PrimaryAction("Add assets", onManageAssets, Modifier.fillMaxWidth())
+                }
+            }
+        }
         item { NetWorthHistoryCard(state, viewModel::selectPeriod) }
-        item { AllocationCard(state) }
+        if (state.totalAssetsMinor != 0L) {
+            item { AllocationCard(state) }
+            item { SecondaryAction("Manage assets & snapshots", onManageAssets, Modifier.fillMaxWidth()) }
+        }
         item { GoalCard(state, onOpenGoal) }
         item { SectionHeader("Financial milestones") }
         item { MilestoneJourney(state.milestones, onEdit = { editing = it }) }
@@ -134,7 +149,7 @@ private fun NetWorthHero(s: DreamboardUiState) {
         if (s.unknownLiabilities > 0) {
             Spacer(Modifier.height(10.dp))
             Text(
-                "${s.unknownLiabilities} liability balance not yet entered and excluded (salary advance).",
+                "${s.unknownLiabilities} liability balance${if (s.unknownLiabilities == 1) "" else "s"} not yet entered and excluded.",
                 style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted,
             )
         }
@@ -155,7 +170,7 @@ private fun NetWorthHistoryCard(s: DreamboardUiState, onPeriod: (HistoryPeriod) 
         if (s.history.size < 2) {
             EmptyState(
                 Icons.Outlined.ShowChart, "History starts today",
-                "Dreamboard records a verified snapshot each month. No past values are invented.",
+                "Dreamboard saves a net-worth snapshot every week from your entered values. No past values are invented.",
             )
         } else {
             val idx = selected ?: s.history.lastIndex
@@ -354,7 +369,7 @@ private fun MilestoneDialog(m: Milestone, onDismiss: () -> Unit, onSave: (Milest
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
                 OutlinedTextField(description, { description = it }, label = { Text("Description") })
                 ChoiceChips(MilestoneStatus.entries, status, { it.label }, { status = it }, Modifier.horizontalScroll(rememberScrollState()))
-                Text("Saved for this session. Permanent storage arrives with the Phase 2 database.",
+                Text("Saved on this phone.",
                     style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
             }
         },

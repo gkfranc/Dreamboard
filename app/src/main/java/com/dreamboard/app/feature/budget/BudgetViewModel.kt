@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
 import javax.inject.Inject
@@ -48,6 +49,7 @@ data class BudgetUiState(
     val filter: TxFilter,
     val transactions: List<Transaction>,
     val categoryNames: Map<String, String>,
+    val isCurrentMonth: Boolean = true,
 ) {
     val remainingMinor: Long get() = budgetMinor - spentMinor
     val usedBps: Long get() = ratioBps(spentMinor, budgetMinor)
@@ -62,32 +64,52 @@ fun Transaction.spendingEffectMinor(): Long = when {
     else -> 0L
 }
 
+/** Net spending attributed to [categoryId], honouring splits. */
+fun Transaction.spendingFor(categoryId: String): Long {
+    val sign = when {
+        type.countsAsSpending -> 1L
+        type == TransactionType.REFUND -> -1L
+        else -> return 0L
+    }
+    return allocations().filter { it.first == categoryId }.sumOf { it.second } * sign
+}
+
+fun Transaction.touchesCategory(categoryId: String): Boolean = allocations().any { it.first == categoryId }
+
 @HiltViewModel
 class BudgetViewModel @Inject constructor(private val repo: FinanceRepository) : ViewModel() {
     private val query = MutableStateFlow("")
     private val filter = MutableStateFlow(TxFilter.ALL)
+    private val selectedMonth = MutableStateFlow(YearMonth.from(repo.asOf))
 
     val uiState: StateFlow<BudgetUiState> = combine(
-        repo.budgetCategories, repo.transactions, repo.monthHistory, query, filter,
-    ) { c, t, h, q, f -> build(c, t, h, q, f) }
+        combine(repo.budgetCategories, repo.transactions, repo.monthHistory) { c, t, h -> Triple(c, t, h) },
+        query, filter, selectedMonth,
+    ) { d, q, f, m -> build(d.first, d.second, d.third, q, f, m) }
         .stateIn(
             viewModelScope, SharingStarted.WhileSubscribed(5_000),
-            build(repo.budgetCategories.value, repo.transactions.value, repo.monthHistory.value, query.value, filter.value),
+            build(repo.budgetCategories.value, repo.transactions.value, repo.monthHistory.value, query.value, filter.value, selectedMonth.value),
         )
 
     fun setQuery(q: String) = query.update { q }
     fun setFilter(f: TxFilter) = filter.update { f }
+    fun shiftMonth(delta: Long) = selectedMonth.update { m ->
+        val next = m.plusMonths(delta)
+        if (next.isAfter(YearMonth.from(repo.asOf))) m else next
+    }
+    fun saveCategory(c: BudgetCategory) = viewModelScope.launch { repo.saveCategory(c) }
 
-    private fun build(cats: List<BudgetCategory>, txs: List<Transaction>, hist: List<MonthSummary>, q: String, f: TxFilter): BudgetUiState {
-        val asOf = repo.asOf
-        val month = YearMonth.from(asOf)
+    private fun build(cats: List<BudgetCategory>, txs: List<Transaction>, hist: List<MonthSummary>, q: String, f: TxFilter, month: YearMonth): BudgetUiState {
+        val today = repo.asOf
+        val isCurrent = month == YearMonth.from(today)
+        val asOf = if (isCurrent) today else month.atEndOfMonth()
         val monthTx = txs.filter { YearMonth.from(it.date) == month }
         val spent = monthTx.sumOf { it.spendingEffectMinor() }
         val budget = cats.sumOf { it.monthlyBudgetMinor }
         val income = monthTx.filter { it.type.countsAsIncome }.sumOf { it.amountMinor }
-        val lines = cats.map { c -> CategoryLine(c, monthTx.filter { it.categoryId == c.id }.sumOf { it.spendingEffectMinor() }) }
+        val lines = cats.map { c -> CategoryLine(c, monthTx.sumOf { it.spendingFor(c.id) }) }
             .sortedByDescending { it.actualMinor }
-        val projected = if (asOf.dayOfMonth == 0) spent else spent * month.lengthOfMonth() / asOf.dayOfMonth
+        val projected = if (!isCurrent) spent else spent * month.lengthOfMonth() / asOf.dayOfMonth
         val merchants = monthTx.filter { it.type.countsAsSpending }
             .groupBy { it.merchant }
             .map { (m, l) -> m to l.sumOf { it.amountMinor } }
@@ -120,7 +142,10 @@ class BudgetViewModel @Inject constructor(private val repo: FinanceRepository) :
             cardSettlementsMinor = monthTx.filter { it.type == TransactionType.CARD_PAYMENT }.sumOf { it.amountMinor },
             projectedMonthEndMinor = projected,
             lines = lines,
-            history = hist + MonthSummary(month, budget, spent, income),
+            history = if (isCurrent) hist + MonthSummary(month, budget, spent, income) else hist + MonthSummary(YearMonth.from(today), budget,
+                txs.filter { YearMonth.from(it.date) == YearMonth.from(today) }.sumOf { it.spendingEffectMinor() },
+                txs.filter { YearMonth.from(it.date) == YearMonth.from(today) && it.type.countsAsIncome }.sumOf { it.amountMinor }),
+            isCurrentMonth = isCurrent,
             topMerchants = merchants,
             query = q,
             filter = f,
@@ -142,14 +167,17 @@ class BudgetCategoryViewModel @Inject constructor(
     private val repo: FinanceRepository,
 ) : ViewModel() {
     private val categoryId: String = checkNotNull(savedStateHandle["categoryId"])
+    private val month: YearMonth = savedStateHandle.get<String>("month")?.takeIf { it.isNotBlank() }
+        ?.let { runCatching { YearMonth.parse(it) }.getOrNull() } ?: YearMonth.from(repo.asOf)
+
+    fun saveCategory(c: BudgetCategory) = viewModelScope.launch { repo.saveCategory(c) }
 
     val uiState: StateFlow<CategoryUiState> = combine(repo.budgetCategories, repo.transactions) { c, t -> build(c, t) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), build(repo.budgetCategories.value, repo.transactions.value))
 
     private fun build(cats: List<BudgetCategory>, txs: List<Transaction>): CategoryUiState {
-        val month = YearMonth.from(repo.asOf)
-        val tx = txs.filter { it.categoryId == categoryId && YearMonth.from(it.date) == month }.sortedByDescending { it.date }
+        val tx = txs.filter { it.touchesCategory(categoryId) && YearMonth.from(it.date) == month }.sortedByDescending { it.date }
         val cat = cats.firstOrNull { it.id == categoryId }
-        return CategoryUiState(cat?.let { CategoryLine(it, tx.sumOf { t -> t.spendingEffectMinor() }) }, tx, month)
+        return CategoryUiState(cat?.let { CategoryLine(it, tx.sumOf { t -> t.spendingFor(categoryId) }) }, tx, month)
     }
 }

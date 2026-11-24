@@ -27,11 +27,17 @@ import com.dreamboard.app.core.designsystem.component.SectionHeader
 import com.dreamboard.app.core.designsystem.component.SlimProgress
 import com.dreamboard.app.core.designsystem.theme.DbTheme
 import java.time.format.DateTimeFormatter
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.dreamboard.app.core.designsystem.component.SecondaryAction
 
 @Composable
-fun BudgetCategoryScreen(onBack: () -> Unit, viewModel: BudgetCategoryViewModel = hiltViewModel()) {
+fun BudgetCategoryScreen(onBack: () -> Unit, onEditTransaction: (String) -> Unit, viewModel: BudgetCategoryViewModel = hiltViewModel()) {
     val s by viewModel.uiState.collectAsStateWithLifecycle()
     val line = s.line
+    var editing by remember { mutableStateOf(false) }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
@@ -41,7 +47,7 @@ fun BudgetCategoryScreen(onBack: () -> Unit, viewModel: BudgetCategoryViewModel 
         if (line != null) {
             item {
                 DbCard(contentPadding = 24.dp) {
-                    Overline("Spent this month", color = DbTheme.colors.gold)
+                    Overline("Spent in " + s.month.format(DateTimeFormatter.ofPattern("MMMM")), color = DbTheme.colors.gold)
                     Spacer(Modifier.height(8.dp))
                     MoneyText(line.actualMinor, style = MaterialTheme.typography.displaySmall, color = if (line.isOver) DbTheme.colors.negative else MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(12.dp))
@@ -49,7 +55,8 @@ fun BudgetCategoryScreen(onBack: () -> Unit, viewModel: BudgetCategoryViewModel 
                     Spacer(Modifier.height(12.dp))
                     MoneyInfoRow("Monthly limit", line.category.monthlyBudgetMinor)
                     MoneyInfoRow("Remaining", line.remainingMinor, valueColor = if (line.isOver) DbTheme.colors.negative else DbTheme.colors.positive)
-                    Text("Limits become editable, copyable between months and annual in Phase 3.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
+                    Spacer(Modifier.height(8.dp))
+                    SecondaryAction("Edit name or limit", { editing = true }, Modifier.fillMaxWidth())
                 }
             }
         }
@@ -57,8 +64,11 @@ fun BudgetCategoryScreen(onBack: () -> Unit, viewModel: BudgetCategoryViewModel 
         if (s.transactions.isEmpty()) {
             item { EmptyState(Icons.Outlined.ReceiptLong, "Nothing spent here yet", "Transactions in this category will appear here.") }
         } else {
-            items(s.transactions, key = { it.id }) { t -> TransactionRow(t, null) }
+            items(s.transactions, key = { it.id }) { t -> TransactionRow(t, if (t.splits.isNotEmpty()) "Split" else null) { onEditTransaction(t.id) } }
         }
         item { Spacer(Modifier.height(12.dp)) }
+    }
+    if (editing && line != null) {
+        CategoryDialog(line.category, onDismiss = { editing = false }, onSave = { viewModel.saveCategory(it); editing = false })
     }
 }

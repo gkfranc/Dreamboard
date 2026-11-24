@@ -23,8 +23,8 @@ object Routes {
 
     const val BUDGET_GRAPH = "budget_graph"
     const val BUDGET = "budget"
-    const val BUDGET_CATEGORY = "budget/category/{categoryId}"
-    fun budgetCategory(id: String) = "budget/category/$id"
+    const val BUDGET_CATEGORY = "budget/category/{categoryId}?month={month}"
+    fun budgetCategory(id: String, month: java.time.YearMonth) = "budget/category/$id?month=$month"
 
     const val IGNITE_GRAPH = "ignite_graph"
     const val IGNITE = "ignite"
@@ -32,6 +32,15 @@ object Routes {
     fun vehicleDetail(id: String) = "ignite/vehicle/$id"
 
     const val SETTINGS = "settings"
+    const val ACCOUNTS = "manage/accounts"
+    const val IMPORT = "manage/import"
+    const val ASSETS = "manage/assets"
+    const val ASSET_EDIT = "manage/asset?assetId={assetId}"
+    fun assetEdit(id: String?) = if (id == null) "manage/asset" else "manage/asset?assetId=$id"
+    const val DEBT_EDIT = "manage/debt?debtId={debtId}"
+    fun debtEdit(id: String?) = if (id == null) "manage/debt" else "manage/debt?debtId=$id"
+    const val TX_EDIT = "manage/transaction?txId={txId}"
+    fun txEdit(id: String?) = if (id == null) "manage/transaction" else "manage/transaction?txId=$id"
 }
 
 enum class TopLevelDestination(
