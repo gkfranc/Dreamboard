@@ -29,6 +29,8 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
       - name: Export Room schema (re-run KSP so a cached result still writes the file)
         run: ./gradlew --no-daemon :app:kspDebugKotlin --rerun
+      - name: Print Room schemas (for committing to app/schemas)
+        run: for f in $(find app/schemas -name '*.json' 2>/dev/null); do echo "SCHEMA-FILE $f"; base64 -w0 "$f"; echo; done
       - uses: actions/upload-artifact@v4
         with:
           name: room-schemas
