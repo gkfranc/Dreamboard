@@ -41,6 +41,7 @@ import com.dreamboard.app.core.importer.ColumnMapping
 import com.dreamboard.app.core.importer.CsvParser
 import com.dreamboard.app.core.importer.Dedupe
 import com.dreamboard.app.core.importer.ImportParsing
+import com.dreamboard.app.core.importer.ParseResult
 import com.dreamboard.app.core.importer.ParsedRow
 import com.dreamboard.app.core.importer.RowError
 import com.dreamboard.app.core.importer.XlsxReader
@@ -78,6 +79,8 @@ data class ImportUiState(
     val mapping: ColumnMapping = ColumnMapping(),
     /** For a single amount column holding only positive spending figures (typical personal expense sheets). */
     val positiveIsSpending: Boolean = false,
+    /** Import every sheet whose header row matches the selected one (e.g. one sheet per month). */
+    val allMatchingSheets: Boolean = false,
     val accountId: String = "",
     val preview: List<PreviewRow> = emptyList(),
     val errors: List<RowError> = emptyList(),
@@ -88,7 +91,16 @@ data class ImportUiState(
     val rows: List<List<String>> get() = sheets.getOrNull(sheetIndex)?.rows.orEmpty()
     val header: List<String> get() = rows.getOrNull(headerRow).orEmpty()
     val newRows: List<PreviewRow> get() = preview.filterNot { it.duplicate }
+    val matchingSheets: List<Int> get() {
+        val key = headerKey(header)
+        return sheets.indices.filter { i ->
+            val r = sheets[i].rows
+            headerKey(r.getOrNull(ImportParsing.detectHeaderRow(r)).orEmpty()) == key
+        }
+    }
 }
+
+private fun headerKey(h: List<String>) = h.map { it.trim().lowercase(Locale.ROOT) }.dropLastWhile { it.isEmpty() }
 
 @HiltViewModel
 class ImportViewModel @Inject constructor(
@@ -114,9 +126,9 @@ class ImportViewModel @Inject constructor(
                 return@launch
             }
             val sheets = withContext(Dispatchers.IO) {
-                val stream = context.contentResolver.openInputStream(uri) ?: error("Couldn't open the file")
+                val (stream, asXlsx) = openStream(uri, xlsx)
                 stream.use { s ->
-                    if (xlsx) XlsxReader.read(s)
+                    if (asXlsx) XlsxReader.read(s)
                     else {
                         val bytes = s.readNBytesCompat(MAX_FILE_BYTES)
                         listOf(XlsxReader.Sheet(name, CsvParser.parse(String(bytes, Charsets.UTF_8))))
@@ -124,8 +136,13 @@ class ImportViewModel @Inject constructor(
                 }
             }.filter { sh -> sh.rows.any { r -> r.any { it.isNotBlank() } } }
             if (sheets.isEmpty()) { fail("That file has no rows to import."); return@launch }
-            _state.update { it.copy(loading = false, fileName = name, isXlsx = xlsx, sheets = sheets) }
-            selectSheet(0)
+            _state.update { it.copy(loading = false, fileName = name, isXlsx = xlsx || isGoogleSheet(uri), sheets = sheets) }
+            // Start on the first sheet that looks like a transaction log (skips dashboards and setup sheets).
+            val first = sheets.indexOfFirst { sh ->
+                ImportParsing.guessMapping(sh.rows.getOrNull(ImportParsing.detectHeaderRow(sh.rows)).orEmpty()).isComplete
+            }.coerceAtLeast(0)
+            selectSheet(first)
+            if (_state.value.matchingSheets.size > 1) setAllMatchingSheets(true)
         } catch (e: Exception) {
             fail("Couldn't read the file: ${e.message ?: e.javaClass.simpleName}")
         }
@@ -147,6 +164,7 @@ class ImportViewModel @Inject constructor(
     }
 
     fun setMapping(m: ColumnMapping) { _state.update { it.copy(mapping = m) }; analyse() }
+    fun setAllMatchingSheets(v: Boolean) { _state.update { it.copy(allMatchingSheets = v) }; analyse() }
     fun setPositiveIsSpending(v: Boolean) { _state.update { it.copy(positiveIsSpending = v) }; analyse() }
     fun setAccount(id: String) { _state.update { it.copy(accountId = id) }; analyse() }
     fun dismissMessage() = _state.update { it.copy(message = null) }
@@ -157,8 +175,22 @@ class ImportViewModel @Inject constructor(
             _state.update { it.copy(preview = emptyList(), errors = emptyList(), skippedBlank = 0) }
             return@launch
         }
-        val parsed = withContext(Dispatchers.Default) { ImportParsing.parseRows(s.rows, s.headerRow, s.mapping) }
-        val rows = if (s.positiveIsSpending && s.mapping.amount != null) parsed.rows.map { it.copy(signedAmountMinor = -it.signedAmountMinor) } else parsed.rows
+        val parsed = withContext(Dispatchers.Default) {
+            if (!s.allMatchingSheets) ImportParsing.parseRows(s.rows, s.headerRow, s.mapping)
+            else {
+                val parts = s.matchingSheets.map { i ->
+                    val sh = s.sheets[i]
+                    val hr = if (i == s.sheetIndex) s.headerRow else ImportParsing.detectHeaderRow(sh.rows)
+                    sh.name to ImportParsing.parseRows(sh.rows, hr, s.mapping)
+                }
+                ParseResult(
+                    parts.flatMap { it.second.rows },
+                    parts.flatMap { (name, r) -> r.errors.map { e -> e.copy(reason = "$name: ${e.reason}") } },
+                    parts.sumOf { it.second.skippedBlank },
+                )
+            }
+        }
+        val rows = if (s.positiveIsSpending && s.mapping.amount != null && s.mapping.direction == null) parsed.rows.map { it.copy(signedAmountMinor = -it.signedAmountMinor) } else parsed.rows
         val hashes = rows.map { Dedupe.hash(s.accountId, it.date, it.signedAmountMinor, it.description) }
         val existing = repo.existingHashCounts(hashes.toSet()).toMutableMap()
         // Multiset matching: two identical rows in the file only count as duplicates as many times as they already exist.
@@ -168,7 +200,7 @@ class ImportViewModel @Inject constructor(
             PreviewRow(r, hashes[i], left > 0)
         }
         _state.update { cur ->
-            if (cur.sheetIndex != s.sheetIndex || cur.mapping != s.mapping || cur.headerRow != s.headerRow || cur.accountId != s.accountId || cur.positiveIsSpending != s.positiveIsSpending) cur
+            if (cur.sheetIndex != s.sheetIndex || cur.allMatchingSheets != s.allMatchingSheets || cur.mapping != s.mapping || cur.headerRow != s.headerRow || cur.accountId != s.accountId || cur.positiveIsSpending != s.positiveIsSpending) cur
             else cur.copy(preview = preview, errors = parsed.errors, skippedBlank = parsed.skippedBlank)
         }
     }
@@ -196,12 +228,16 @@ class ImportViewModel @Inject constructor(
                 amountMinor = Math.abs(p.row.signedAmountMinor),
                 type = if (out) TransactionType.EXPENSE else TransactionType.INCOME,
                 categoryId = categoryFor(p.row.category, out), account = account.name, source = source,
-                note = p.row.category?.takeIf { !out }?.let { "Sheet category: $it" }.orEmpty(),
+                note = listOfNotNull(p.row.category?.takeIf { !out }?.let { "Sheet category: $it" }, p.row.note.ifBlank { null }).joinToString(" · "),
                 accountId = account.id, importBatchId = batchId,
             )
         }
         val sheetName = s.sheets.getOrNull(s.sheetIndex)?.name
-        val label = if (s.isXlsx && sheetName != null) "${s.fileName} › $sheetName" else s.fileName.orEmpty()
+        val label = when {
+            s.allMatchingSheets && s.matchingSheets.size > 1 -> "${s.fileName} › ${s.matchingSheets.size} sheets"
+            s.isXlsx && sheetName != null -> "${s.fileName} › $sheetName"
+            else -> s.fileName.orEmpty()
+        }
         val batch = ImportBatch(
             id = batchId, fileName = label, importedAtMillis = System.currentTimeMillis(),
             rowCount = s.preview.size + s.errors.size, importedCount = txs.size,
@@ -213,6 +249,32 @@ class ImportViewModel @Inject constructor(
     }
 
     fun reset() { _state.value = ImportUiState(accountId = _state.value.accountId) }
+
+    private fun isGoogleSheet(uri: Uri): Boolean =
+        context.contentResolver.getType(uri).orEmpty().contains("google-apps.spreadsheet")
+
+    /**
+     * Opens the picked file. Google Sheets picked from the Drive app are "virtual" files with no
+     * bytes of their own, so they are opened as an .xlsx (or CSV) export that Drive provides.
+     */
+    private fun openStream(uri: Uri, xlsx: Boolean): Pair<java.io.InputStream, Boolean> {
+        val resolver = context.contentResolver
+        val types = resolver.getStreamTypes(uri, "*/*")?.toList().orEmpty()
+        val virtual = runCatching {
+            android.provider.DocumentsContract.isDocumentUri(context, uri) &&
+                resolver.query(uri, arrayOf(android.provider.DocumentsContract.Document.COLUMN_FLAGS), null, null, null)?.use { c ->
+                    c.moveToFirst() && (c.getInt(0) and android.provider.DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT) != 0
+                } == true
+        }.getOrDefault(false)
+        if (virtual || isGoogleSheet(uri)) {
+            val xlsxType = types.firstOrNull { it.contains("spreadsheetml") }
+            val csvType = types.firstOrNull { it.contains("csv") }
+            val pick = xlsxType ?: csvType ?: error("Drive can't export this file as .xlsx or .csv")
+            val afd = resolver.openTypedAssetFileDescriptor(uri, pick, null) ?: error("Couldn't open the file")
+            return afd.createInputStream() to (pick == xlsxType)
+        }
+        return (resolver.openInputStream(uri) ?: error("Couldn't open the file")) to xlsx
+    }
 
     private fun displayName(uri: Uri): String? =
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
@@ -249,6 +311,7 @@ fun ImportScreen(onBack: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
         picker.launch(arrayOf(
             "text/csv", "text/comma-separated-values", "text/plain", "application/csv",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream",
+            "application/vnd.google-apps.spreadsheet",
         ))
     }
     LazyColumn(
@@ -299,6 +362,16 @@ fun ImportScreen(onBack: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (s.sheets.size > 1) {
                         PickerInput(s.sheetIndex, s.sheets.indices.toList(), "Sheet", { s.sheets[it].name }, { viewModel.selectSheet(it) })
+                        val matching = s.matchingSheets
+                        if (matching.size > 1) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("All ${matching.size} sheets with these columns", style = MaterialTheme.typography.bodyMedium)
+                                    Text(matching.joinToString(", ") { s.sheets[it].name }, style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
+                                }
+                                Switch(s.allMatchingSheets, { viewModel.setAllMatchingSheets(it) })
+                            }
+                        }
                     }
                     val headerOptions = (0 until minOf(s.rows.size, 30)).toList()
                     PickerInput(s.headerRow, headerOptions, "Header row", { r ->
@@ -327,7 +400,8 @@ fun ImportScreen(onBack: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
                         PickerInput(m.moneyOut, cols, "Money out", ::label, { viewModel.setMapping(m.copy(moneyOut = it)) })
                         PickerInput(m.moneyIn, cols, "Money in", ::label, { viewModel.setMapping(m.copy(moneyIn = it)) })
                     } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        PickerInput(m.direction, cols, "Expense/Income column (optional)", ::label, { viewModel.setMapping(m.copy(direction = it)) })
+                        if (m.direction == null) Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Positive amounts are spending", style = MaterialTheme.typography.bodyMedium)
                                 Text("Turn on for an expense list where every amount is written as a positive number.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
@@ -336,6 +410,8 @@ fun ImportScreen(onBack: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
                         }
                     }
                     PickerInput(m.category, cols, "Category (optional)", ::label, { viewModel.setMapping(m.copy(category = it)) })
+                    PickerInput(m.subcategory, cols, "Subcategory, kept in the note (optional)", ::label, { viewModel.setMapping(m.copy(subcategory = it)) })
+                    PickerInput(m.notes, cols, "Notes (optional)", ::label, { viewModel.setMapping(m.copy(notes = it)) })
                     if (!m.isComplete) Text("Choose a date, description and at least one amount column.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.negative)
                 }
             }
@@ -367,7 +443,7 @@ fun ImportScreen(onBack: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
                         style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
                 }
             }
-            items(s.preview.take(25), key = { it.row.rowNumber }) { p ->
+            items(s.preview.take(25)) { p ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(p.row.description, style = MaterialTheme.typography.bodyMedium, maxLines = 1)

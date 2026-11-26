@@ -108,4 +108,36 @@ class ImportParsingTest {
         assertEquals(0, XlsxReader.columnIndex("A1"))
         assertEquals(27, XlsxReader.columnIndex("AB12"))
     }
+
+    @Test fun dailySpendingTrackerLayout() {
+        val rows = listOf(
+            listOf("Transaction Log"),
+            listOf("Record expenses and income separately"),
+            emptyList(),
+            listOf("Date", "Type", "Category", "Subcategory", "Description", "Amount (KES)", "Spend Nature", "Beneficiary", "Payment Method", "Notes", "Month", "Net Impact (KES)"),
+            listOf("22 Jul 2026", "Expense", "Vehicle", "Fuel", "Fuel consumed during commute", "KES 1,400", "Routine", "Vehicle", "Not specified", "Daily fuel cost", "Jul 2026", "KES 1,400"),
+            listOf("22 Jul 2026", "Income", "Vehicle", "Passenger Contribution", "Morning passenger contributions", "KES 450", "Routine", "Vehicle", "Cash", "3 passengers", "Jul 2026", "-KES 450"),
+        )
+        val header = ImportParsing.detectHeaderRow(rows)
+        assertEquals(3, header)
+        val m = ImportParsing.guessMapping(rows[header])
+        assertEquals(0, m.date); assertEquals(4, m.description); assertEquals(5, m.amount)
+        assertEquals(2, m.category); assertEquals(1, m.direction); assertEquals(3, m.subcategory); assertEquals(9, m.notes)
+        val r = ImportParsing.parseRows(rows, header, m)
+        assertEquals(listOf(-140_000L, 45_000L), r.rows.map { it.signedAmountMinor })
+        assertEquals("Fuel · Daily fuel cost", r.rows[0].note)
+        assertEquals("Vehicle", r.rows[1].category)
+    }
+
+    @Test fun directionWords() {
+        assertEquals(-1, ImportParsing.directionOf("Expense"))
+        assertEquals(1, ImportParsing.directionOf("Income"))
+        assertEquals(1, ImportParsing.directionOf("CR"))
+        assertNull(ImportParsing.directionOf("Routine"))
+    }
+
+    @Test fun septAbbreviation() {
+        assertEquals(LocalDate.of(2026, 9, 13), ImportParsing.parseDate("13-Sept-26"))
+        assertEquals(LocalDate.of(2026, 2, 25), ImportParsing.parseDate("25-Feb-26"))
+    }
 }

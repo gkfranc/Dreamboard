@@ -27,6 +27,8 @@ jobs:
         with:
           name: dreamboard-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+      - name: Export Room schema (re-run KSP so a cached result still writes the file)
+        run: ./gradlew --no-daemon :app:kspDebugKotlin --rerun
       - uses: actions/upload-artifact@v4
         with:
           name: room-schemas

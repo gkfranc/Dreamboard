@@ -18,6 +18,10 @@ data class ColumnMapping(
     /** Money in (credit / deposit / paid in). */
     val moneyIn: Int? = null,
     val category: Int? = null,
+    /** A column saying "Expense"/"Income" (or Debit/Credit) that sets the direction of a positive amount. */
+    val direction: Int? = null,
+    val subcategory: Int? = null,
+    val notes: Int? = null,
 ) {
     val isComplete: Boolean get() = date != null && description != null && (amount != null || moneyOut != null || moneyIn != null)
 }
@@ -29,6 +33,7 @@ data class ParsedRow(
     /** Positive = money in, negative = money out. */
     val signedAmountMinor: Long,
     val category: String?,
+    val note: String = "",
 )
 
 data class RowError(val rowNumber: Int, val reason: String)
@@ -43,6 +48,27 @@ object ImportParsing {
     private val OUT_HINTS = listOf("withdrawn", "withdrawal", "debit", "money out", "paid out", "dr", "out", "expense", "spent")
     private val IN_HINTS = listOf("paid in", "deposit", "credit", "money in", "cr", "in", "income", "received")
     private val CATEGORY_HINTS = listOf("category", "type of expense", "expense type", "class")
+    private val DIRECTION_HINTS = listOf("type", "transaction type", "dr/cr", "debit/credit", "in/out", "direction")
+    private val SUBCATEGORY_HINTS = listOf("subcategory", "sub-category", "sub category")
+    private val NOTES_HINTS = listOf("notes", "note", "remarks", "comment", "comments")
+
+    private val IN_WORDS = listOf("income", "received", "receipt", "credit", "deposit", "refund", "money in", "paid in", "in", "cr")
+    private val OUT_WORDS = listOf("expense", "spent", "spend", "debit", "withdraw", "payment", "money out", "paid out", "out", "dr")
+
+    /** +1 for money in, -1 for money out, null if the cell doesn't say. */
+    fun directionOf(cell: String): Int? {
+        val c = cell.lowercase(Locale.ROOT).trim()
+        if (c.isEmpty()) return null
+        val words = c.split(Regex("[^a-z]+")).filter { it.isNotEmpty() }
+        fun hit(list: List<String>) = list.any { w -> if (w.length <= 3) w in words else c.contains(w) }
+        val inn = hit(IN_WORDS)
+        val out = hit(OUT_WORDS)
+        return when {
+            inn && !out -> 1
+            out && !inn -> -1
+            else -> null
+        }
+    }
 
     /** Picks the header row: the first of the first 15 rows whose cells look like column names. */
     fun detectHeaderRow(rows: List<List<String>>): Int {
@@ -71,9 +97,15 @@ object ImportParsing {
         val amount = if (out == null && inn == null) find(AMOUNT_HINTS, used) else null
         val taken = used + setOfNotNull(out, inn, amount)
         val desc = find(DESC_HINTS, taken)
-        val category = find(CATEGORY_HINTS, taken + setOfNotNull(desc))
-        return ColumnMapping(date, desc, amount, out, inn, category)
+        val category = find(CATEGORY_HINTS, taken + setOfNotNull(desc) + subIdx(h))
+        val used2 = taken + setOfNotNull(desc, category)
+        val direction = if (amount != null) find(DIRECTION_HINTS, used2) else null
+        val sub = find(SUBCATEGORY_HINTS, used2 + setOfNotNull(direction))
+        val notes = find(NOTES_HINTS, used2 + setOfNotNull(direction, sub))
+        return ColumnMapping(date, desc, amount, out, inn, category, direction, sub, notes)
     }
+
+    private fun subIdx(h: List<String>): Set<Int> = h.indices.filter { i -> SUBCATEGORY_HINTS.any { h[i].contains(it) } }.toSet()
 
     fun parseRows(rows: List<List<String>>, headerRow: Int, m: ColumnMapping): ParseResult {
         val parsed = ArrayList<ParsedRow>()
@@ -87,7 +119,13 @@ object ImportParsing {
             val date = parseDate(cell(m.date))
             if (date == null) { errors += RowError(rowNumber, "Unreadable date \"${cell(m.date)}\""); continue }
             val amount: Long? = when {
-                m.amount != null -> parseAmount(cell(m.amount))
+                m.amount != null -> parseAmount(cell(m.amount))?.let { a ->
+                    when (m.direction?.let { directionOf(cell(it)) }) {
+                        1 -> Math.abs(a)
+                        -1 -> -Math.abs(a)
+                        else -> a
+                    }
+                }
                 else -> {
                     val out = cell(m.moneyOut).takeIf { it.isNotEmpty() }?.let { parseAmount(it) }
                     val inn = cell(m.moneyIn).takeIf { it.isNotEmpty() }?.let { parseAmount(it) }
@@ -97,7 +135,8 @@ object ImportParsing {
             if (amount == null) { errors += RowError(rowNumber, "No readable amount"); continue }
             if (amount == 0L) { errors += RowError(rowNumber, "Amount is zero"); continue }
             val desc = cell(m.description).ifEmpty { "(no description)" }
-            parsed += ParsedRow(rowNumber, date, desc, amount, cell(m.category).ifEmpty { null })
+            val note = listOf(cell(m.subcategory), cell(m.notes)).filter { it.isNotEmpty() && it != "-" }.joinToString(" · ")
+            parsed += ParsedRow(rowNumber, date, desc, amount, cell(m.category).ifEmpty { null }, note)
         }
         return ParseResult(parsed, errors, blank)
     }
@@ -134,7 +173,7 @@ object ImportParsing {
      * A trailing time ("2026-11-03 14:22:10") is ignored.
      */
     fun parseDate(raw: String): LocalDate? {
-        val s = raw.trim()
+        val s = raw.trim().replace(Regex("(?i)\\bsept\\b"), "Sep")
         if (s.isEmpty()) return null
         s.toDoubleOrNull()?.let { serial ->
             if (serial in 20_000.0..80_000.0) return LocalDate.of(1899, 12, 30).plusDays(serial.toLong())
