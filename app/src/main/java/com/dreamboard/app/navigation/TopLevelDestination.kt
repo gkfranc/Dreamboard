@@ -30,6 +30,9 @@ object Routes {
     const val IGNITE = "ignite"
     const val VEHICLE_DETAIL = "ignite/vehicle/{vehicleId}"
     fun vehicleDetail(id: String) = "ignite/vehicle/$id"
+    const val VEHICLE_EDIT = "ignite/edit?vehicleId={vehicleId}"
+    fun vehicleEdit(id: String?) = if (id == null) "ignite/edit" else "ignite/edit?vehicleId=$id"
+    const val FLIP_IMPORT = "ignite/import"
 
     const val SETTINGS = "settings"
     const val ACCOUNTS = "manage/accounts"

@@ -204,3 +204,66 @@ data class MilestoneEntity(
     val status: String,
     val updatedAt: Long,
 )
+
+// ---- Ignite Motors (schema version 2) ----
+
+/** Profit-sharing rule. Shares are basis points of net deal profit and sum to 10,000. */
+@Entity(tableName = "funding_arrangement")
+data class ArrangementEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val type: String,
+    val investorShareBps: Long,
+    val partnerShareBps: Long,
+    val personalShareBps: Long,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "vehicle",
+    foreignKeys = [ForeignKey(entity = ArrangementEntity::class, parentColumns = ["id"], childColumns = ["arrangementId"], onDelete = ForeignKey.RESTRICT)],
+    indices = [Index("arrangementId"), Index("importKey"), Index("status")],
+)
+data class VehicleEntity(
+    @PrimaryKey val id: String,
+    val registration: String,
+    val make: String,
+    val model: String,
+    val year: Int,
+    val purchaseDate: LocalDate?,
+    val purchasePriceMinor: Long,
+    val arrangementId: String,
+    val condition: String,
+    val listingPriceMinor: Long?,
+    val expectedPriceMinor: Long?,
+    val actualPriceMinor: Long?,
+    val saleDate: LocalDate?,
+    val status: String,
+    val notes: String,
+    /** Normalised "car name|date bought" so a re-imported tracker updates the same car. */
+    val importKey: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "vehicle_expense",
+    foreignKeys = [ForeignKey(entity = VehicleEntity::class, parentColumns = ["id"], childColumns = ["vehicleId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("vehicleId")],
+)
+data class VehicleExpenseEntity(
+    @PrimaryKey val id: String,
+    val vehicleId: String,
+    val kind: String,
+    val amountMinor: Long,
+    val note: String,
+)
+
+/** Single row (id = 1): monthly Ignite targets. Zero means no target set. */
+@Entity(tableName = "ignite_settings")
+data class IgniteSettingsEntity(
+    @PrimaryKey val id: Int = 1,
+    val targetNetProfitMinor: Long,
+    val targetUnits: Int,
+)

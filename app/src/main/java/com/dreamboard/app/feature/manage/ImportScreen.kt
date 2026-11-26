@@ -117,35 +117,20 @@ class ImportViewModel @Inject constructor(
 
     fun open(uri: Uri) = viewModelScope.launch {
         _state.value = ImportUiState(loading = true, accountId = _state.value.accountId)
-        try {
-            val name = withContext(Dispatchers.IO) { displayName(uri) } ?: "spreadsheet"
-            val mime = context.contentResolver.getType(uri).orEmpty()
-            val xlsx = name.endsWith(".xlsx", true) || mime.contains("spreadsheetml")
-            if (name.endsWith(".xls", true)) {
-                fail("Old .xls files aren't supported. In Excel or Google Sheets, save or download as .xlsx or .csv and pick that file.")
-                return@launch
-            }
-            val sheets = withContext(Dispatchers.IO) {
-                val (stream, asXlsx) = openStream(uri, xlsx)
-                stream.use { s ->
-                    if (asXlsx) XlsxReader.read(s)
-                    else {
-                        val bytes = s.readNBytesCompat(MAX_FILE_BYTES)
-                        listOf(XlsxReader.Sheet(name, CsvParser.parse(String(bytes, Charsets.UTF_8))))
-                    }
-                }
-            }.filter { sh -> sh.rows.any { r -> r.any { it.isNotBlank() } } }
-            if (sheets.isEmpty()) { fail("That file has no rows to import."); return@launch }
-            _state.update { it.copy(loading = false, fileName = name, isXlsx = xlsx || isGoogleSheet(uri), sheets = sheets) }
-            // Start on the first sheet that looks like a transaction log (skips dashboards and setup sheets).
-            val first = sheets.indexOfFirst { sh ->
-                ImportParsing.guessMapping(sh.rows.getOrNull(ImportParsing.detectHeaderRow(sh.rows)).orEmpty()).isComplete
-            }.coerceAtLeast(0)
-            selectSheet(first)
-            if (_state.value.matchingSheets.size > 1) setAllMatchingSheets(true)
+        val file = try {
+            withContext(Dispatchers.IO) { SpreadsheetFiles.read(context, uri) }
         } catch (e: Exception) {
-            fail("Couldn't read the file: ${e.message ?: e.javaClass.simpleName}")
+            fail("Couldn't read the file: ${e.message ?: e.javaClass.simpleName}"); return@launch
         }
+        val sheets = file.sheets
+        if (sheets.isEmpty()) { fail("That file has no rows to import."); return@launch }
+        _state.update { it.copy(loading = false, fileName = file.name, isXlsx = file.isXlsx, sheets = sheets) }
+        // Start on the first sheet that looks like a transaction log (skips dashboards and setup sheets).
+        val first = sheets.indexOfFirst { sh ->
+            ImportParsing.guessMapping(sh.rows.getOrNull(ImportParsing.detectHeaderRow(sh.rows)).orEmpty()).isComplete
+        }.coerceAtLeast(0)
+        selectSheet(first)
+        if (_state.value.matchingSheets.size > 1) setAllMatchingSheets(true)
     }
 
     private fun fail(msg: String) = _state.update { it.copy(loading = false, message = msg) }
@@ -250,50 +235,6 @@ class ImportViewModel @Inject constructor(
 
     fun reset() { _state.value = ImportUiState(accountId = _state.value.accountId) }
 
-    private fun isGoogleSheet(uri: Uri): Boolean =
-        context.contentResolver.getType(uri).orEmpty().contains("google-apps.spreadsheet")
-
-    /**
-     * Opens the picked file. Google Sheets picked from the Drive app are "virtual" files with no
-     * bytes of their own, so they are opened as an .xlsx (or CSV) export that Drive provides.
-     */
-    private fun openStream(uri: Uri, xlsx: Boolean): Pair<java.io.InputStream, Boolean> {
-        val resolver = context.contentResolver
-        val types = resolver.getStreamTypes(uri, "*/*")?.toList().orEmpty()
-        val virtual = runCatching {
-            android.provider.DocumentsContract.isDocumentUri(context, uri) &&
-                resolver.query(uri, arrayOf(android.provider.DocumentsContract.Document.COLUMN_FLAGS), null, null, null)?.use { c ->
-                    c.moveToFirst() && (c.getInt(0) and android.provider.DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT) != 0
-                } == true
-        }.getOrDefault(false)
-        if (virtual || isGoogleSheet(uri)) {
-            val xlsxType = types.firstOrNull { it.contains("spreadsheetml") }
-            val csvType = types.firstOrNull { it.contains("csv") }
-            val pick = xlsxType ?: csvType ?: error("Drive can't export this file as .xlsx or .csv")
-            val afd = resolver.openTypedAssetFileDescriptor(uri, pick, null) ?: error("Couldn't open the file")
-            return afd.createInputStream() to (pick == xlsxType)
-        }
-        return (resolver.openInputStream(uri) ?: error("Couldn't open the file")) to xlsx
-    }
-
-    private fun displayName(uri: Uri): String? =
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-            if (c.moveToFirst()) c.getString(0) else null
-        }
-}
-
-private fun java.io.InputStream.readNBytesCompat(limit: Long): ByteArray {
-    val out = java.io.ByteArrayOutputStream()
-    val buf = ByteArray(16 * 1024)
-    var total = 0L
-    while (true) {
-        val n = read(buf)
-        if (n < 0) break
-        total += n
-        if (total > limit) throw IllegalArgumentException("File is larger than 25 MB")
-        out.write(buf, 0, n)
-    }
-    return out.toByteArray()
 }
 
 private fun columnName(i: Int): String {
@@ -308,11 +249,7 @@ fun ImportScreen(onBack: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
     val s by viewModel.state.collectAsStateWithLifecycle()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.open(it) } }
     val launch = {
-        picker.launch(arrayOf(
-            "text/csv", "text/comma-separated-values", "text/plain", "application/csv",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream",
-            "application/vnd.google-apps.spreadsheet",
-        ))
+        picker.launch(SpreadsheetFiles.PICKER_TYPES)
     }
     LazyColumn(
         Modifier.fillMaxSize(),

@@ -8,6 +8,8 @@ import com.dreamboard.app.core.finance.IgniteSummary
 import com.dreamboard.app.core.finance.ProfitSplit
 import com.dreamboard.app.domain.model.FundingArrangement
 import com.dreamboard.app.domain.model.IgniteMonth
+import com.dreamboard.app.domain.model.IgniteTargets
+import kotlinx.coroutines.launch
 import com.dreamboard.app.domain.model.Vehicle
 import com.dreamboard.app.domain.model.VehicleStatus
 import com.dreamboard.app.domain.repository.FinanceRepository
@@ -34,7 +36,9 @@ data class IgniteUiState(
     val isDemo: Boolean,
     val asOf: LocalDate,
     val summary: IgniteSummary,
-    val availableCashMinor: Long,
+    val partnerSharesMinor: Long,
+    val targets: IgniteTargets,
+    val vehicleCount: Int,
     val projectedStockProfitMinor: Long,
     val inventoryTurnoverX10: Long,
     val months: List<IgniteMonth>,
@@ -51,17 +55,18 @@ class IgniteViewModel @Inject constructor(private val repo: FinanceRepository) :
     private val filter = MutableStateFlow(InventoryFilter.IN_STOCK)
 
     val uiState: StateFlow<IgniteUiState> = combine(
-        repo.vehicles, repo.arrangements, repo.igniteMonths, repo.igniteAvailableCashMinor, filter,
-    ) { v, a, m, cash, f -> build(v, a, m, cash, f) }
+        repo.vehicles, repo.arrangements, repo.igniteMonths, repo.igniteTargets, filter,
+    ) { v, a, m, t, f -> build(v, a, m, t, f) }
         .stateIn(
             viewModelScope, SharingStarted.WhileSubscribed(5_000),
-            build(repo.vehicles.value, repo.arrangements.value, repo.igniteMonths.value, repo.igniteAvailableCashMinor.value, filter.value),
+            build(repo.vehicles.value, repo.arrangements.value, repo.igniteMonths.value, repo.igniteTargets.value, filter.value),
         )
 
     fun setFilter(f: InventoryFilter) = filter.update { f }
+    fun setTargets(t: IgniteTargets) = viewModelScope.launch { repo.setIgniteTargets(t) }
 
     private fun build(
-        vehicles: List<Vehicle>, arr: List<FundingArrangement>, months: List<IgniteMonth>, cash: Long, f: InventoryFilter,
+        vehicles: List<Vehicle>, arr: List<FundingArrangement>, months: List<IgniteMonth>, targets: IgniteTargets, f: InventoryFilter,
     ): IgniteUiState {
         val asOf = repo.igniteAsOf
         val byId = arr.associateBy { it.id }
@@ -73,7 +78,12 @@ class IgniteViewModel @Inject constructor(private val repo: FinanceRepository) :
             isDemo = repo.igniteIsDemo,
             asOf = asOf,
             summary = summary,
-            availableCashMinor = cash,
+            partnerSharesMinor = sold.sumOf { v ->
+                val a = byId[v.arrangementId]
+                if (a == null) 0L else IgniteMath.split(IgniteMath.netDealProfit(v) ?: 0L, a).partnerMinor
+            },
+            targets = targets,
+            vehicleCount = vehicles.size,
             projectedStockProfitMinor = stock.sumOf { IgniteMath.projectedDealProfit(it) ?: 0L },
             inventoryTurnoverX10 = if (stock.isEmpty()) 0 else soldLast6 * 10L / stock.size,
             months = months,

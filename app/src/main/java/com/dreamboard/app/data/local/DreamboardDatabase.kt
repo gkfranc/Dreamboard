@@ -1,5 +1,6 @@
 package com.dreamboard.app.data.local
 
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
@@ -11,9 +12,11 @@ import androidx.room.migration.Migration
         TransactionSplitEntity::class, AssetEntity::class, AssetValuationEntity::class, LiabilityEntity::class,
         LiabilityPaymentEntity::class, BalanceAdjustmentEntity::class, SnapshotEntity::class, GoalEntity::class,
         MilestoneEntity::class,
+        ArrangementEntity::class, VehicleEntity::class, VehicleExpenseEntity::class, IgniteSettingsEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 @TypeConverters(Converters::class)
 abstract class DreamboardDatabase : RoomDatabase() {
@@ -24,6 +27,7 @@ abstract class DreamboardDatabase : RoomDatabase() {
     abstract fun liabilities(): LiabilityDao
     abstract fun snapshots(): SnapshotDao
     abstract fun plan(): PlanDao
+    abstract fun ignite(): IgniteDao
 
     companion object {
         const val NAME = "dreamboard.db"

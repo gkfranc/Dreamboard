@@ -31,11 +31,13 @@ import com.dreamboard.app.core.designsystem.component.Tag
 import com.dreamboard.app.core.designsystem.theme.DbTheme
 import com.dreamboard.app.core.money.MoneyFormatter
 import java.time.format.DateTimeFormatter
+import androidx.compose.foundation.layout.fillMaxWidth
+import com.dreamboard.app.core.designsystem.component.SecondaryAction
 
 private val DAY = DateTimeFormatter.ofPattern("d MMM yyyy")
 
 @Composable
-fun VehicleDetailScreen(onBack: () -> Unit, viewModel: VehicleDetailViewModel = hiltViewModel()) {
+fun VehicleDetailScreen(onBack: () -> Unit, onEdit: (String) -> Unit, viewModel: VehicleDetailViewModel = hiltViewModel()) {
     val s by viewModel.uiState.collectAsStateWithLifecycle()
     val v = s.vehicle
     LazyColumn(
@@ -69,6 +71,7 @@ fun VehicleDetailScreen(onBack: () -> Unit, viewModel: VehicleDetailViewModel = 
                 )
             }
         }
+        item { SecondaryAction("Edit car", { onEdit(v.id) }, Modifier.fillMaxWidth()) }
         item { SectionHeader("Deal economics") }
         item {
             DbCard {
@@ -103,8 +106,9 @@ fun VehicleDetailScreen(onBack: () -> Unit, viewModel: VehicleDetailViewModel = 
         item {
             DbCard {
                 InfoRow("Make & model", "${v.make} ${v.model}")
-                InfoRow("Year", "${v.year}")
-                InfoRow("Condition", v.condition)
+                if (v.registration.isNotBlank()) InfoRow("Registration", v.registration)
+                if (v.year > 0) InfoRow("Year", "${v.year}")
+                if (v.condition.isNotBlank()) InfoRow("Condition", v.condition)
                 InfoRow("Purchase date", v.purchaseDate?.format(DAY) ?: "Not purchased")
                 InfoRow("Sale date", v.saleDate?.format(DAY) ?: "—")
                 InfoRow("Days in stock", s.daysInStock?.toString() ?: "—")
@@ -112,8 +116,6 @@ fun VehicleDetailScreen(onBack: () -> Unit, viewModel: VehicleDetailViewModel = 
                     Spacer(Modifier.height(6.dp))
                     Text(v.notes, style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
                 }
-                Spacer(Modifier.height(6.dp))
-                Text("Photos and editing arrive with the Phase 4 Ignite module.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
             }
         }
         item { Spacer(Modifier.height(12.dp)) }

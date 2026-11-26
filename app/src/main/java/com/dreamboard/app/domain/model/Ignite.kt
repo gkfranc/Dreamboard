@@ -11,15 +11,21 @@ enum class VehicleStatus(val label: String, val inStock: Boolean) {
     SOLD("Sold", false),
 }
 
+/** Deal costs, in the order of Frank's flipping tracker columns. */
 enum class DealExpenseKind(val label: String) {
-    REPAIRS("Repairs & preparation"),
+    BROKER_COMMISSION("Brokers"),
+    TRANSFER_FEES("Transfer"),
+    MARKETING("Marketing"),
+    REPAIRS("Repairs"),
+    FUEL("Mileage (fuel)"),
+    LOGBOOK("Logbook"),
     SHOWROOM("Showroom"),
-    TRANSFER_FEES("Transfer fees"),
-    BROKER_COMMISSION("Broker commission"),
     OTHER("Other"),
 }
 
 enum class FundingType(val label: String) {
+    PARTNERSHIP("Partner profit share"),
+    SOLE("Sole (all yours)"),
     JOINT_POOL("Joint business pool"),
     UK_INVESTOR("UK investor-funded"),
     INDIVIDUAL_INVESTOR("Individual investor"),
@@ -63,7 +69,7 @@ data class Vehicle(
     val status: VehicleStatus,
     val notes: String,
 ) {
-    val title: String get() = "$year $make $model"
+    val title: String get() = listOf(if (year > 0) year.toString() else "", make, model).filter { it.isNotBlank() }.joinToString(" ")
     val totalExpensesMinor: Long get() = expenses.sumOf { it.amountMinor }
     val totalCostMinor: Long get() = purchasePriceMinor + totalExpensesMinor
 }
@@ -76,3 +82,5 @@ data class IgniteMonth(
     val targetNetProfitMinor: Long,
     val targetUnits: Int,
 )
+
+data class IgniteTargets(val netProfitMinor: Long = 0L, val units: Int = 0)

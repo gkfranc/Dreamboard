@@ -81,3 +81,25 @@ interface PlanDao {
     @Upsert suspend fun upsertMilestones(m: List<MilestoneEntity>)
     @Query("SELECT COUNT(*) FROM milestone") suspend fun milestoneCount(): Int
 }
+
+@Dao
+interface IgniteDao {
+    @Query("SELECT * FROM funding_arrangement ORDER BY name") fun observeArrangements(): Flow<List<ArrangementEntity>>
+    @Query("SELECT * FROM funding_arrangement") suspend fun arrangements(): List<ArrangementEntity>
+    @Upsert suspend fun upsertArrangement(a: ArrangementEntity)
+    @Upsert suspend fun upsertArrangements(a: List<ArrangementEntity>)
+    @Query("SELECT COUNT(*) FROM vehicle WHERE arrangementId = :id") suspend fun vehiclesUsing(id: String): Int
+    @Query("DELETE FROM funding_arrangement WHERE id = :id") suspend fun deleteArrangement(id: String)
+
+    @Query("SELECT * FROM vehicle ORDER BY purchaseDate DESC, createdAt DESC") fun observeVehicles(): Flow<List<VehicleEntity>>
+    @Query("SELECT * FROM vehicle_expense") fun observeExpenses(): Flow<List<VehicleExpenseEntity>>
+    @Query("SELECT * FROM vehicle WHERE id = :id") suspend fun vehicle(id: String): VehicleEntity?
+    @Query("SELECT * FROM vehicle WHERE importKey IN (:keys)") suspend fun vehiclesByKey(keys: List<String>): List<VehicleEntity>
+    @Upsert suspend fun upsertVehicle(v: VehicleEntity)
+    @Query("DELETE FROM vehicle WHERE id = :id") suspend fun deleteVehicle(id: String)
+    @Query("DELETE FROM vehicle_expense WHERE vehicleId = :vehicleId") suspend fun deleteExpenses(vehicleId: String)
+    @Insert suspend fun insertExpenses(e: List<VehicleExpenseEntity>)
+
+    @Query("SELECT * FROM ignite_settings WHERE id = 1") fun observeSettings(): Flow<IgniteSettingsEntity?>
+    @Upsert suspend fun upsertSettings(s: IgniteSettingsEntity)
+}

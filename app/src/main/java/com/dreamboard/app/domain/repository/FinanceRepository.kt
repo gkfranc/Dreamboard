@@ -7,6 +7,7 @@ import com.dreamboard.app.domain.model.BudgetCategory
 import com.dreamboard.app.domain.model.Debt
 import com.dreamboard.app.domain.model.FundingArrangement
 import com.dreamboard.app.domain.model.IgniteMonth
+import com.dreamboard.app.domain.model.IgniteTargets
 import com.dreamboard.app.domain.model.ImportBatch
 import com.dreamboard.app.domain.model.Milestone
 import com.dreamboard.app.domain.model.MonthSummary
@@ -43,13 +44,23 @@ interface FinanceRepository {
     val monthlyNetIncomeMinor: StateFlow<Long>
     val importBatches: StateFlow<List<ImportBatch>>
 
-    // Ignite Motors stays on labelled demonstration data until Phase 4.
+    // Ignite Motors: cars, deal costs and profit-sharing rules, kept separate from personal net worth.
     val igniteIsDemo: Boolean
     val igniteAsOf: LocalDate
     val vehicles: StateFlow<List<Vehicle>>
     val arrangements: StateFlow<List<FundingArrangement>>
     val igniteMonths: StateFlow<List<IgniteMonth>>
-    val igniteAvailableCashMinor: StateFlow<Long>
+    val igniteTargets: StateFlow<IgniteTargets>
+    suspend fun saveVehicle(vehicle: Vehicle)
+    suspend fun deleteVehicle(id: String)
+    suspend fun saveArrangement(arrangement: FundingArrangement)
+    /** False when cars still use it. */
+    suspend fun deleteArrangement(id: String): Boolean
+    suspend fun setIgniteTargets(targets: IgniteTargets)
+    /** Import key -> existing vehicle, for re-imports of the flipping tracker. */
+    suspend fun vehiclesByImportKey(keys: Collection<String>): Map<String, Vehicle>
+    /** Inserts or replaces each vehicle (with its expenses) and stores its import key. */
+    suspend fun importVehicles(vehicles: List<Pair<Vehicle, String>>, newArrangements: List<FundingArrangement>)
 
     fun updateGoalAssumptions(transform: (GoalAssumptions) -> GoalAssumptions)
     fun updateMilestone(milestone: Milestone)

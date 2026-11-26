@@ -41,7 +41,9 @@ import com.dreamboard.app.feature.debt.DebtScreen
 import com.dreamboard.app.feature.dreamboard.DreamboardScreen
 import com.dreamboard.app.feature.dreamboard.PorscheGoalScreen
 import com.dreamboard.app.feature.ignite.IgniteScreen
+import com.dreamboard.app.feature.ignite.FlipImportScreen
 import com.dreamboard.app.feature.ignite.VehicleDetailScreen
+import com.dreamboard.app.feature.ignite.VehicleEditorScreen
 import com.dreamboard.app.feature.manage.AccountsScreen
 import com.dreamboard.app.feature.manage.AssetEditorScreen
 import com.dreamboard.app.feature.manage.AssetsScreen
@@ -155,11 +157,17 @@ private fun DreamboardNavHost(navController: NavHostController, modifier: Modifi
         }
         navigation(startDestination = Routes.IGNITE, route = Routes.IGNITE_GRAPH) {
             composable(Routes.IGNITE) {
-                IgniteScreen(onOpenVehicle = { id -> navController.navigate(Routes.vehicleDetail(id)) })
+                IgniteScreen(
+                    onOpenVehicle = { id -> navController.navigate(Routes.vehicleDetail(id)) },
+                    onAddVehicle = { navController.navigate(Routes.vehicleEdit(null)) },
+                    onImportTracker = { navController.navigate(Routes.FLIP_IMPORT) },
+                )
             }
             composable(Routes.VEHICLE_DETAIL, arguments = listOf(navArgument("vehicleId") { type = NavType.StringType })) {
-                VehicleDetailScreen(onBack = back)
+                VehicleDetailScreen(onBack = back, onEdit = { id -> navController.navigate(Routes.vehicleEdit(id)) })
             }
+            composable(Routes.VEHICLE_EDIT, arguments = listOf(optionalArg("vehicleId"))) { VehicleEditorScreen(onBack = back) }
+            composable(Routes.FLIP_IMPORT) { FlipImportScreen(onBack = back) }
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(

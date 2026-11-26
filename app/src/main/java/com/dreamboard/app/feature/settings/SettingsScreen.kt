@@ -154,7 +154,7 @@ fun SettingsScreen(
             }
         }
         item {
-            Text("Dreamboard 0.2 · Phase 2 · free and open-source components only",
+            Text("Dreamboard 0.3 · free and open-source components only",
                 style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted, modifier = Modifier.padding(vertical = 16.dp))
         }
     }

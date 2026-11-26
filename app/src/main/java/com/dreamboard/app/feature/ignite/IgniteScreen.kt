@@ -60,6 +60,16 @@ import com.dreamboard.app.core.money.MoneyFormatter
 import com.dreamboard.app.domain.model.Vehicle
 import com.dreamboard.app.domain.model.VehicleStatus
 import java.time.format.DateTimeFormatter
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.KeyboardType
+import com.dreamboard.app.core.designsystem.component.MoneyInput
+import com.dreamboard.app.core.designsystem.component.PrimaryAction
+import com.dreamboard.app.core.designsystem.component.SecondaryAction
+import com.dreamboard.app.core.designsystem.component.TextInput
+import com.dreamboard.app.core.designsystem.component.moneyToInput
+import com.dreamboard.app.core.designsystem.component.parseMoneyInput
+import com.dreamboard.app.domain.model.IgniteTargets
 
 private val MONTH_SHORT = DateTimeFormatter.ofPattern("MMM")
 private val MONTH_FULL = DateTimeFormatter.ofPattern("MMMM yyyy")
@@ -73,9 +83,15 @@ internal fun statusColor(s: VehicleStatus): Color = when (s) {
 }
 
 @Composable
-fun IgniteScreen(onOpenVehicle: (String) -> Unit, viewModel: IgniteViewModel = hiltViewModel()) {
+fun IgniteScreen(
+    onOpenVehicle: (String) -> Unit,
+    onAddVehicle: () -> Unit,
+    onImportTracker: () -> Unit,
+    viewModel: IgniteViewModel = hiltViewModel(),
+) {
     val s by viewModel.uiState.collectAsStateWithLifecycle()
     val sum = s.summary
+    var editingTargets by remember { mutableStateOf(false) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -84,6 +100,24 @@ fun IgniteScreen(onOpenVehicle: (String) -> Unit, viewModel: IgniteViewModel = h
     ) {
         item { ScreenHeader("Ignite", overline = "Ignite Motors · business") }
         if (s.isDemo) item { DemoDataBanner("Demonstration vehicles and deals (registrations marked DEMO). Business figures are kept separate from personal net worth.") }
+        if (s.vehicleCount == 0) {
+            item {
+                DbCard {
+                    EmptyState(Icons.Outlined.DirectionsCar, "No cars yet",
+                        "Import your flipping tracker (Excel or Google Sheet) to bring in every deal with its costs and Peter's share, or add a car by hand.")
+                    PrimaryAction("Import flipping tracker", onImportTracker, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    SecondaryAction("Add a car", onAddVehicle, Modifier.fillMaxWidth())
+                }
+            }
+            return@LazyColumn
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PrimaryAction("Add car", onAddVehicle, Modifier.weight(1f))
+                SecondaryAction("Import tracker", onImportTracker, Modifier.weight(1f))
+            }
+        }
         item {
             DbCard(contentPadding = 24.dp) {
                 Overline("Net profit · all completed deals", color = DbTheme.colors.gold)
@@ -115,7 +149,7 @@ fun IgniteScreen(onOpenVehicle: (String) -> Unit, viewModel: IgniteViewModel = h
         }
         item {
             CardRow { m ->
-                KpiCard("Business cash", s.availableCashMinor, m, caption = "Includes investor funds")
+                KpiCard("Partner shares", s.partnerSharesMinor, m, caption = "Owed or paid to partners")
                 KpiCard("Revenue this month", sum.monthRevenueMinor, m, caption = s.asOf.format(MONTH_FULL))
             }
         }
@@ -138,7 +172,7 @@ fun IgniteScreen(onOpenVehicle: (String) -> Unit, viewModel: IgniteViewModel = h
                 StatCard("Sold to date", "${sum.soldCount}", m, caption = "Completed deals")
             }
         }
-        item { MonthlyCard(s) }
+        item { MonthlyCard(s, onSetTargets = { editingTargets = true }) }
         item { SectionHeader("Inventory") }
         item {
             ChoiceChips(InventoryFilter.entries, s.filter, { it.label }, viewModel::setFilter, Modifier.horizontalScroll(rememberScrollState()))
@@ -159,14 +193,42 @@ fun IgniteScreen(onOpenVehicle: (String) -> Unit, viewModel: IgniteViewModel = h
             )
         }
     }
+    if (editingTargets) {
+        TargetsDialog(s.targets, onDismiss = { editingTargets = false }, onSave = { viewModel.setTargets(it); editingTargets = false })
+    }
 }
 
 @Composable
-private fun MonthlyCard(s: IgniteUiState) {
+private fun TargetsDialog(current: IgniteTargets, onDismiss: () -> Unit, onSave: (IgniteTargets) -> Unit) {
+    var profit by remember { mutableStateOf(moneyToInput(current.netProfitMinor)) }
+    var units by remember { mutableStateOf(if (current.units > 0) current.units.toString() else "") }
+    val profitMinor = parseMoneyInput(profit)
+    val unitsValue = if (units.isBlank()) 0 else units.toIntOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Monthly targets") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                MoneyInput(profit, { profit = it }, "Net profit per month", supporting = "Use 0 for no target.")
+                TextInput(units, { units = it.filter(Char::isDigit).take(3) }, "Cars sold per month", keyboard = KeyboardType.Number)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = profitMinor != null && unitsValue != null, onClick = { onSave(IgniteTargets(profitMinor ?: 0L, unitsValue ?: 0)) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun MonthlyCard(s: IgniteUiState, onSetTargets: () -> Unit) {
     var selected by remember(s.months) { mutableStateOf<Int?>(null) }
     val m = s.months.getOrNull(selected ?: s.months.lastIndex)
     DbCard {
-        Overline("Monthly net profit vs target")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Overline(if (s.targets.netProfitMinor > 0) "Monthly net profit vs target" else "Monthly net profit", modifier = Modifier.weight(1f))
+            TextButton(onClick = onSetTargets) { Text(if (s.targets.netProfitMinor > 0 || s.targets.units > 0) "Edit targets" else "Set targets", color = DbTheme.colors.gold) }
+        }
         Spacer(Modifier.height(8.dp))
         if (m != null) {
             Row(verticalAlignment = Alignment.Bottom) {
@@ -176,19 +238,23 @@ private fun MonthlyCard(s: IgniteUiState) {
                 Text(m.month.format(MONTH_FULL), style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted, modifier = Modifier.padding(bottom = 3.dp))
             }
             Text(
-                "Target ${formatMoney(m.targetNetProfitMinor)} · ${m.unitsSold} of ${m.targetUnits} cars sold · revenue ${formatMoney(m.revenueMinor, forceAbbreviate = true)}",
+                listOfNotNull(
+                    m.targetNetProfitMinor.takeIf { it > 0 }?.let { "Target ${formatMoney(it)}" },
+                    if (m.targetUnits > 0) "${m.unitsSold} of ${m.targetUnits} cars sold" else "${m.unitsSold} cars sold",
+                    "revenue ${formatMoney(m.revenueMinor, forceAbbreviate = true)}",
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted,
             )
         }
         Spacer(Modifier.height(12.dp))
         GroupedBarChart(
-            groups = s.months.map { BarGroup(it.month.format(MONTH_SHORT), it.netProfitMinor, target = it.targetNetProfitMinor) },
+            groups = s.months.map { BarGroup(it.month.format(MONTH_SHORT), it.netProfitMinor, target = it.targetNetProfitMinor.takeIf { t -> t > 0 }) },
             selectedIndex = selected,
             onSelect = { selected = it },
             primaryColor = DbTheme.colors.gold,
         )
         Spacer(Modifier.height(6.dp))
-        Text("Dashed line marks the monthly target. Tap a month for detail.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
+        Text(if (s.targets.netProfitMinor > 0) "Dashed line marks the monthly target. Tap a month for detail." else "Tap a month for detail.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
         Spacer(Modifier.height(10.dp))
         MoneyInfoRow("Projected profit on current stock", s.projectedStockProfitMinor, valueColor = DbTheme.colors.gold)
         Text("Forecast from expected selling prices; not yet realized.", style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted)
@@ -209,7 +275,7 @@ private fun VehicleRow(v: Vehicle, s: IgniteUiState, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(v.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                Text(v.registration + " · " + (s.arrangements[v.arrangementId]?.name ?: "Unassigned"), style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted, maxLines = 1)
+                Text(listOf(v.registration, s.arrangements[v.arrangementId]?.name ?: "Unassigned").filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = DbTheme.colors.textMuted, maxLines = 1)
             }
             Column(horizontalAlignment = Alignment.End) {
                 when {

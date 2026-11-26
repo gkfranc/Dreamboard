@@ -4,7 +4,15 @@ import androidx.room.withTransaction
 import com.dreamboard.app.core.finance.GoalAssumptions
 import com.dreamboard.app.core.importer.Dedupe
 import com.dreamboard.app.core.money.kes
-import com.dreamboard.app.data.demo.DemoFinanceRepository
+import com.dreamboard.app.core.finance.IgniteMath
+import com.dreamboard.app.domain.model.DealExpense
+import com.dreamboard.app.domain.model.DealExpenseKind
+import com.dreamboard.app.domain.model.FundingArrangement
+import com.dreamboard.app.domain.model.FundingType
+import com.dreamboard.app.domain.model.IgniteMonth
+import com.dreamboard.app.domain.model.IgniteTargets
+import com.dreamboard.app.domain.model.Vehicle
+import com.dreamboard.app.domain.model.VehicleStatus
 import com.dreamboard.app.di.ApplicationScope
 import com.dreamboard.app.domain.model.Account
 import com.dreamboard.app.domain.model.AccountKind
@@ -48,8 +56,6 @@ class RoomFinanceRepository @Inject constructor(
     private val db: DreamboardDatabase,
     @ApplicationScope private val scope: CoroutineScope,
 ) : FinanceRepository {
-
-    private val demo = DemoFinanceRepository()
 
     override val isDemoData: Boolean = false
     override val asOf: LocalDate get() = LocalDate.now()
@@ -124,13 +130,76 @@ class RoomFinanceRepository @Inject constructor(
         l.map { ImportBatch(it.id, it.fileName, it.importedAt, it.rowCount, it.importedCount, it.duplicateCount, it.errorCount, it.errorReport) }
     }.state(emptyList())
 
-    // Ignite: labelled demonstration data until Phase 4.
-    override val igniteIsDemo: Boolean = true
-    override val igniteAsOf: LocalDate = DemoFinanceRepository.DEMO_AS_OF
-    override val vehicles = demo.vehicles
-    override val arrangements = demo.arrangements
-    override val igniteMonths = demo.igniteMonths
-    override val igniteAvailableCashMinor = demo.igniteAvailableCashMinor
+    // ---- Ignite Motors ----
+    override val igniteIsDemo: Boolean = false
+    override val igniteAsOf: LocalDate get() = LocalDate.now()
+
+    override val arrangements: StateFlow<List<FundingArrangement>> = db.ignite().observeArrangements()
+        .map { l -> l.mapNotNull { it.toDomainOrNull() } }.state(emptyList())
+
+    override val vehicles: StateFlow<List<Vehicle>> = combine(db.ignite().observeVehicles(), db.ignite().observeExpenses()) { vs, es ->
+        val byVehicle = es.groupBy { it.vehicleId }
+        vs.map { it.toDomain(byVehicle[it.id].orEmpty()) }
+    }.state(emptyList())
+
+    override val igniteTargets: StateFlow<IgniteTargets> = db.ignite().observeSettings()
+        .map { it?.let { s -> IgniteTargets(s.targetNetProfitMinor, s.targetUnits) } ?: IgniteTargets() }.state(IgniteTargets())
+
+    /** The last six months including this one, from actual sales. */
+    override val igniteMonths: StateFlow<List<IgniteMonth>> = combine(vehicles, igniteTargets) { vs, t ->
+        val current = YearMonth.now()
+        (5 downTo 0).map { current.minusMonths(it.toLong()) }.map { m ->
+            val sold = vs.filter { it.status == VehicleStatus.SOLD && it.saleDate != null && YearMonth.from(it.saleDate) == m }
+            IgniteMonth(m, sold.size, sold.sumOf { it.actualPriceMinor ?: 0L }, sold.sumOf { IgniteMath.netDealProfit(it) ?: 0L }, t.netProfitMinor, t.units)
+        }
+    }.state(emptyList())
+
+    override suspend fun saveVehicle(vehicle: Vehicle) = io {
+        db.withTransaction {
+            val old = db.ignite().vehicle(vehicle.id)
+            val ts = now()
+            db.ignite().upsertVehicle(vehicle.toEntity(old?.importKey, old?.createdAt ?: ts, ts))
+            db.ignite().deleteExpenses(vehicle.id)
+            db.ignite().insertExpenses(vehicle.expenseEntities())
+        }
+    }
+
+    override suspend fun deleteVehicle(id: String) = io { db.ignite().deleteVehicle(id) }
+
+    override suspend fun saveArrangement(arrangement: FundingArrangement) = io {
+        val ts = now()
+        db.ignite().upsertArrangement(arrangement.toEntity(ts))
+    }
+
+    override suspend fun deleteArrangement(id: String): Boolean = io {
+        db.withTransaction {
+            if (db.ignite().vehiclesUsing(id) > 0) false else { db.ignite().deleteArrangement(id); true }
+        }
+    }
+
+    override suspend fun setIgniteTargets(targets: IgniteTargets) = io {
+        db.ignite().upsertSettings(IgniteSettingsEntity(1, targets.netProfitMinor, targets.units))
+    }
+
+    override suspend fun vehiclesByImportKey(keys: Collection<String>): Map<String, Vehicle> = io {
+        if (keys.isEmpty()) return@io emptyMap()
+        val found = keys.chunked(500).flatMap { db.ignite().vehiclesByKey(it) }
+        val byId = vehicles.value.associateBy { it.id }
+        found.mapNotNull { e -> val v = byId[e.id] ?: e.toDomain(emptyList()); e.importKey?.let { it to v } }.toMap()
+    }
+
+    override suspend fun importVehicles(vehicles: List<Pair<Vehicle, String>>, newArrangements: List<FundingArrangement>) = io {
+        db.withTransaction {
+            val ts = now()
+            db.ignite().upsertArrangements(newArrangements.map { it.toEntity(ts) })
+            vehicles.forEach { (v, key) ->
+                val old = db.ignite().vehicle(v.id)
+                db.ignite().upsertVehicle(v.toEntity(key, old?.createdAt ?: ts, ts))
+                db.ignite().deleteExpenses(v.id)
+                db.ignite().insertExpenses(v.expenseEntities())
+            }
+        }
+    }
 
     // ---- Writes ----
 
@@ -291,6 +360,9 @@ class RoomFinanceRepository @Inject constructor(
     /** Settings-like defaults only (categories, accounts, milestones, goal). No financial figures are invented. */
     private suspend fun seedDefaultsIfEmpty() {
         val ts = now()
+        if (db.ignite().arrangements().isEmpty()) {
+            db.ignite().upsertArrangements(DEFAULT_ARRANGEMENTS.map { it.toEntity(ts) })
+        }
         if (db.categories().count() == 0) {
             db.categories().upsertAll(DEFAULT_CATEGORIES.mapIndexed { i, (id, name, budget) -> CategoryEntity(id, name, null, budget, i, false, ts, ts) })
         }
@@ -403,3 +475,36 @@ private fun GoalAssumptions.toEntity() = GoalEntity(
     RoomFinanceRepository.GOAL_ID, targetYearMonth.year, targetYearMonth.monthValue, todayPriceMinor, monthlyContributionMinor,
     annualReturnBps, annualInflationBps, insuranceRateBps, annualMaintenanceMinor, annualFuelMinor, System.currentTimeMillis(),
 )
+
+// ---- Ignite mappers ----
+
+internal val DEFAULT_ARRANGEMENTS = listOf(
+    // From the flipping tracker: Peter's column is 30% of each deal's profit.
+    FundingArrangement("arr-peter", "Peter partnership (30% to Peter)", FundingType.PARTNERSHIP, 0L, 3_000L, 7_000L),
+    FundingArrangement("arr-sole", "Sole deal (100% yours)", FundingType.SOLE, 0L, 0L, 10_000L),
+)
+
+private fun FundingArrangement.toEntity(ts: Long) =
+    ArrangementEntity(id, name, type.name, investorShareBps, partnerShareBps, personalShareBps, ts, ts)
+
+private fun ArrangementEntity.toDomainOrNull(): FundingArrangement? = runCatching {
+    FundingArrangement(id, name, enumOr(type, FundingType.PARTNERSHIP), investorShareBps, partnerShareBps, personalShareBps)
+}.getOrNull()
+
+private fun VehicleEntity.toDomain(expenses: List<VehicleExpenseEntity>) = Vehicle(
+    id = id, registration = registration, make = make, model = model, year = year, purchaseDate = purchaseDate,
+    purchasePriceMinor = purchasePriceMinor, arrangementId = arrangementId, condition = condition,
+    expenses = expenses.map { DealExpense(enumOr(it.kind, DealExpenseKind.OTHER), it.amountMinor, it.note) }
+        .sortedBy { it.kind.ordinal },
+    listingPriceMinor = listingPriceMinor, expectedPriceMinor = expectedPriceMinor, actualPriceMinor = actualPriceMinor,
+    saleDate = saleDate, status = enumOr(status, VehicleStatus.PURCHASED), notes = notes,
+)
+
+private fun Vehicle.toEntity(importKey: String?, createdAt: Long, ts: Long) = VehicleEntity(
+    id, registration, make, model, year, purchaseDate, purchasePriceMinor, arrangementId, condition,
+    listingPriceMinor, expectedPriceMinor, actualPriceMinor, saleDate, status.name, notes, importKey, createdAt, ts,
+)
+
+private fun Vehicle.expenseEntities() = expenses.filter { it.amountMinor != 0L }.mapIndexed { i, e ->
+    VehicleExpenseEntity("$id-${e.kind.name}-$i", id, e.kind.name, e.amountMinor, e.note)
+}
